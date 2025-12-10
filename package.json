@@ -1,0 +1,56 @@
+{
+    "name": "chat-kit",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "dev": "rsbuild dev"
+    },
+    "exports": {
+        ".": {
+            "source": "./src/index.ts",
+            "import": "./src/index.ts"
+        }
+    },
+    "module": "./src/index.ts",
+    "source": "./src/index.ts",
+    "files": [
+        "dist"
+    ],
+    "dependencies": {
+        "@ngify/http": "^2.0.4",
+        "clsx": "^2.1.1",
+        "immer": "^10.1.1",
+        "jotai": "^2.15.2",
+        "katex": "^0.16.21",
+        "lucide-react": "^0.510.0",
+        "overlayscrollbars": "2.11.2",
+        "overlayscrollbars-react": "0.5.6",
+        "react": "^18.3.1",
+        "react-markdown": "^10.1.0",
+        "rehype-katex": "^7.0.1",
+        "rehype-mathjax": "^7.1.0",
+        "rehype-raw": "^7.0.0",
+        "remark-gfm": "^4.0.1",
+        "remark-math": "^6.0.0",
+        "rxjs": "^7.8.1",
+        "unist": "^0.0.1",
+        "unist-util-visit": "^5.0.0",
+        "virtua": "^0.41.2"
+    },
+    "devDependencies": {
+        "@rsbuild/core": "^1.3.1",
+        "@rsbuild/plugin-check-syntax": "^1.3.0",
+        "@rsbuild/plugin-react": "^1.1.1",
+        "@rsbuild/plugin-styled-components": "^1.3.0",
+        "@tailwindcss/typography": "^0.5.16",
+        "@types/react": "^18.3.18",
+        "@types/react-dom": "^18.3.5",
+        "file-replace-loader": "^1.4.2",
+        "postcss-import": "^16.1.0",
+        "postcss-preset-env": "^10.1.4",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "tailwindcss": "3",
+        "typescript": "^5.7.3"
+    }
+}
