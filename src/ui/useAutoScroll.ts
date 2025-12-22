@@ -32,12 +32,12 @@ export function useAutoScroll(
     const [follow, setFollow] = useState(true)
     const programmaticRef = useRef(false)
     const moRef = useRef<MutationObserver | null>(null)
-    const followTaskPendingRef = useRef(false)
     // 标记用户是否正在进行交互（鼠标滚轮/触摸/键盘/指针等）
     const userInteractingRef = useRef(false)
     const userInteractTimeoutRef = useRef<number | null>(null)
     // 允许的“离底部”误差：避免由于小数像素/虚拟列表测量/滚动条布局抖动造成反复 scrollTo
-    const bottomEpsilonPxRef = useRef(8)
+    const bottomEpsilonPxRef = useRef(2)
+    const followRafIdRef = useRef<number | null>(null)
 
     const distanceToBottom = useCallback((viewport: HTMLElement) => {
         return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
@@ -64,7 +64,8 @@ export function useAutoScroll(
             programmaticRef.current = true
             const bh: ScrollBehavior =
                 behavior === 'instant' ? ('auto' as ScrollBehavior) : behavior
-            viewport.scrollTo({ top: viewport.scrollHeight, behavior: bh })
+            const maxScrollTop = viewport.scrollHeight - viewport.clientHeight
+            viewport.scrollTo({ top: maxScrollTop, behavior: bh })
             // 短暂释放 programmatic 标记，允许用户接管
             requestAnimationFrame(() => {
                 programmaticRef.current = false
@@ -89,6 +90,14 @@ export function useAutoScroll(
 
     const attach = useCallback(() => {
         const bindViewport = (viewport: HTMLElement) => {
+            const scheduleFollow = () => {
+                if (followRafIdRef.current !== null) return
+                followRafIdRef.current = window.requestAnimationFrame(() => {
+                    followRafIdRef.current = null
+                    maybeFollow()
+                })
+            }
+
             // 监听用户交互：非底部滚轮则关闭跟随
             const onWheel = (event: WheelEvent) => {
                 markUserInteracting()
@@ -138,34 +147,40 @@ export function useAutoScroll(
             }
             viewport.addEventListener('scroll', onScroll, { passive: true })
 
-            // MutationObserver：内容变化时仅在跟随下贴底，并通过 microtask 合并
+            // MutationObserver：内容变化时仅在跟随下贴底
             moRef.current?.disconnect()
-            moRef.current = new MutationObserver(() => {
+            moRef.current = new MutationObserver((records) => {
                 if (!followRef.current) return
-                if (followTaskPendingRef.current) return
-                followTaskPendingRef.current = true
-                const flush = () => {
-                    followTaskPendingRef.current = false
-                    maybeFollow()
-                }
-                if (typeof queueMicrotask === 'function') {
-                    queueMicrotask(flush)
-                } else if (typeof Promise !== 'undefined') {
-                    Promise.resolve().then(flush)
-                } else {
-                    setTimeout(flush, 0)
+                // 1) 流式渲染会频繁产生 text/childList 变化：需要及时贴底
+                // 2) virtua 会通过 style 更新进行测量/定位：也需要跟随
+                // 3) OverlayScrollbars 会改动 viewport 自身样式/属性：忽略它，避免“结束后来回抖动”
+                for (const record of records) {
+                    if (record.type === 'childList' || record.type === 'characterData') {
+                        scheduleFollow()
+                        return
+                    }
+                    if (record.type === 'attributes') {
+                        if (record.target === viewport) continue
+                        scheduleFollow()
+                        return
+                    }
                 }
             })
             moRef.current.observe(viewport, {
                 subtree: true,
                 childList: true,
-                // 只关心“内容本身”的变化：避免 virtua/OverlayScrollbars 的样式与属性更新触发反复贴底
-                characterData: true
+                characterData: true,
+                attributes: true,
+                attributeFilter: ['style']
             })
 
             return () => {
                 moRef.current?.disconnect()
                 moRef.current = null
+                if (followRafIdRef.current !== null) {
+                    window.cancelAnimationFrame(followRafIdRef.current)
+                    followRafIdRef.current = null
+                }
                 viewport.removeEventListener('wheel', onWheel)
                 viewport.removeEventListener('touchstart', onTouchStart)
                 viewport.removeEventListener('pointerdown', onPointerDown)
