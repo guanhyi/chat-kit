@@ -32,23 +32,11 @@ export function useAutoScroll(
     const [follow, setFollow] = useState(true)
     const programmaticRef = useRef(false)
     const moRef = useRef<MutationObserver | null>(null)
+    const followTaskPendingRef = useRef(false)
+    const pendingFollowModeRef = useRef<'force' | 'soft'>('force')
     // 标记用户是否正在进行交互（鼠标滚轮/触摸/键盘/指针等）
     const userInteractingRef = useRef(false)
     const userInteractTimeoutRef = useRef<number | null>(null)
-    // 允许的“离底部”误差：避免由于小数像素/虚拟列表测量/滚动条布局抖动造成反复 scrollTo
-    const bottomEpsilonPxRef = useRef(2)
-    const followRafIdRef = useRef<number | null>(null)
-
-    const distanceToBottom = useCallback((viewport: HTMLElement) => {
-        return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
-    }, [])
-
-    const isNearBottom = useCallback(
-        (viewport: HTMLElement) => {
-            return distanceToBottom(viewport) <= bottomEpsilonPxRef.current
-        },
-        [distanceToBottom]
-    )
 
     const updateFollow = useCallback((v: boolean) => {
         followRef.current = v
@@ -59,19 +47,16 @@ export function useAutoScroll(
         (behavior: ScrollBehavior | 'instant' = 'instant') => {
             const viewport = getViewport()
             if (!viewport) return
-            // 已在底部则不做无意义的 scrollTo，避免与虚拟列表/自定义滚动条产生“抢控制权”抖动
-            if (isNearBottom(viewport)) return
             programmaticRef.current = true
             const bh: ScrollBehavior =
                 behavior === 'instant' ? ('auto' as ScrollBehavior) : behavior
-            const maxScrollTop = viewport.scrollHeight - viewport.clientHeight
-            viewport.scrollTo({ top: maxScrollTop, behavior: bh })
+            viewport.scrollTo({ top: viewport.scrollHeight, behavior: bh })
             // 短暂释放 programmatic 标记，允许用户接管
             requestAnimationFrame(() => {
                 programmaticRef.current = false
             })
         },
-        [getViewport, isNearBottom]
+        [getViewport]
     )
 
     const maybeFollow = useCallback(() => {
@@ -90,26 +75,18 @@ export function useAutoScroll(
 
     const attach = useCallback(() => {
         const bindViewport = (viewport: HTMLElement) => {
-            const scheduleFollow = () => {
-                if (followRafIdRef.current !== null) return
-                followRafIdRef.current = window.requestAnimationFrame(() => {
-                    followRafIdRef.current = null
-                    maybeFollow()
-                })
-            }
-
             // 监听用户交互：非底部滚轮则关闭跟随
             const onWheel = (event: WheelEvent) => {
                 markUserInteracting()
-                const distance = distanceToBottom(viewport)
-                if (distance <= bottomEpsilonPxRef.current) {
+                const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+                if (distance <= 2) {
                     // 当仍处于底部且用户尝试向上滚动时立即关闭跟随，避免 MO 抢回控制权
                     if (event.deltaY < 0) {
                         updateFollow(false)
                     }
                     return
                 }
-                if (distance > bottomEpsilonPxRef.current) updateFollow(false)
+                if (distance > 2) updateFollow(false)
             }
             viewport.addEventListener('wheel', onWheel, { passive: true })
 
@@ -137,8 +114,8 @@ export function useAutoScroll(
             // 滚动事件：当用户主动滚到底部时，立即恢复跟随
             const onScroll = () => {
                 if (programmaticRef.current) return
-                const distance = distanceToBottom(viewport)
-                if (distance <= bottomEpsilonPxRef.current) {
+                const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+                if (distance <= 2) {
                     updateFollow(true)
                 } else if (userInteractingRef.current) {
                     // 仅在用户交互触发的离底部滚动时，关闭跟随，避免 MO/虚拟列表引起的误判
@@ -147,23 +124,62 @@ export function useAutoScroll(
             }
             viewport.addEventListener('scroll', onScroll, { passive: true })
 
-            // MutationObserver：内容变化时仅在跟随下贴底
+            // MutationObserver：内容变化时仅在跟随下贴底，并通过 microtask 合并
             moRef.current?.disconnect()
             moRef.current = new MutationObserver((records) => {
                 if (!followRef.current) return
-                // 1) 流式渲染会频繁产生 text/childList 变化：需要及时贴底
-                // 2) virtua 会通过 style 更新进行测量/定位：也需要跟随
-                // 3) OverlayScrollbars 会改动 viewport 自身样式/属性：忽略它，避免“结束后来回抖动”
-                for (const record of records) {
-                    if (record.type === 'childList' || record.type === 'characterData') {
-                        scheduleFollow()
-                        return
+
+                // 关键：只修复“结束后抖动”，不影响流式贴底的平滑度
+                //
+                // - 流式正文更新：通常会产生 childList/characterData 变更，需要强制贴底（force）
+                // - 虚拟列表测量/定位：会产生子元素 style 变更，允许贴底，但在离底部 <= 2px 时不再反复 scrollTo（soft）
+                // - OverlayScrollbars：会持续改动 viewport 自身 style（例如自动隐藏/变量刷新），这类变更不应触发贴底，否则会形成回环抖动
+                const hasContentMutation = records.some(
+                    (record) => record.type === 'childList' || record.type === 'characterData'
+                )
+                const hasNonViewportStyleMutation = records.some(
+                    (record) =>
+                        record.type === 'attributes' &&
+                        record.attributeName === 'style' &&
+                        record.target !== viewport
+                )
+
+                if (!hasContentMutation && !hasNonViewportStyleMutation) {
+                    return
+                }
+
+                const mode: 'force' | 'soft' = hasContentMutation ? 'force' : 'soft'
+
+                if (followTaskPendingRef.current) {
+                    // 若同一轮里先收到 style 变更、后收到内容变更，升级为 force，避免流式变卡
+                    if (mode === 'force') pendingFollowModeRef.current = 'force'
+                    return
+                }
+
+                followTaskPendingRef.current = true
+                pendingFollowModeRef.current = mode
+
+                const flush = () => {
+                    followTaskPendingRef.current = false
+                    const pendingMode = pendingFollowModeRef.current
+                    pendingFollowModeRef.current = 'force'
+
+                    if (pendingMode === 'soft') {
+                        const distance =
+                            viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+                        // deadband：离底部非常近时不再重复 scrollTo，避免“最后一行来回抖”
+                        if (distance <= 2) return
                     }
-                    if (record.type === 'attributes') {
-                        if (record.target === viewport) continue
-                        scheduleFollow()
-                        return
-                    }
+
+                    maybeFollow()
+                }
+
+                if (typeof queueMicrotask === 'function') {
+                    queueMicrotask(flush)
+                } else if (typeof Promise !== 'undefined') {
+                    Promise.resolve().then(flush)
+                } else {
+                    setTimeout(flush, 0)
                 }
             })
             moRef.current.observe(viewport, {
@@ -177,10 +193,6 @@ export function useAutoScroll(
             return () => {
                 moRef.current?.disconnect()
                 moRef.current = null
-                if (followRafIdRef.current !== null) {
-                    window.cancelAnimationFrame(followRafIdRef.current)
-                    followRafIdRef.current = null
-                }
                 viewport.removeEventListener('wheel', onWheel)
                 viewport.removeEventListener('touchstart', onTouchStart)
                 viewport.removeEventListener('pointerdown', onPointerDown)
