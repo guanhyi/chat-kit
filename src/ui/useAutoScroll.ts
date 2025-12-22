@@ -36,6 +36,19 @@ export function useAutoScroll(
     // 标记用户是否正在进行交互（鼠标滚轮/触摸/键盘/指针等）
     const userInteractingRef = useRef(false)
     const userInteractTimeoutRef = useRef<number | null>(null)
+    // 允许的“离底部”误差：避免由于小数像素/虚拟列表测量/滚动条布局抖动造成反复 scrollTo
+    const bottomEpsilonPxRef = useRef(8)
+
+    const distanceToBottom = useCallback((viewport: HTMLElement) => {
+        return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+    }, [])
+
+    const isNearBottom = useCallback(
+        (viewport: HTMLElement) => {
+            return distanceToBottom(viewport) <= bottomEpsilonPxRef.current
+        },
+        [distanceToBottom]
+    )
 
     const updateFollow = useCallback((v: boolean) => {
         followRef.current = v
@@ -46,6 +59,8 @@ export function useAutoScroll(
         (behavior: ScrollBehavior | 'instant' = 'instant') => {
             const viewport = getViewport()
             if (!viewport) return
+            // 已在底部则不做无意义的 scrollTo，避免与虚拟列表/自定义滚动条产生“抢控制权”抖动
+            if (isNearBottom(viewport)) return
             programmaticRef.current = true
             const bh: ScrollBehavior =
                 behavior === 'instant' ? ('auto' as ScrollBehavior) : behavior
@@ -55,7 +70,7 @@ export function useAutoScroll(
                 programmaticRef.current = false
             })
         },
-        [getViewport]
+        [getViewport, isNearBottom]
     )
 
     const maybeFollow = useCallback(() => {
@@ -77,15 +92,15 @@ export function useAutoScroll(
             // 监听用户交互：非底部滚轮则关闭跟随
             const onWheel = (event: WheelEvent) => {
                 markUserInteracting()
-                const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
-                if (distance <= 2) {
+                const distance = distanceToBottom(viewport)
+                if (distance <= bottomEpsilonPxRef.current) {
                     // 当仍处于底部且用户尝试向上滚动时立即关闭跟随，避免 MO 抢回控制权
                     if (event.deltaY < 0) {
                         updateFollow(false)
                     }
                     return
                 }
-                if (distance > 2) updateFollow(false)
+                if (distance > bottomEpsilonPxRef.current) updateFollow(false)
             }
             viewport.addEventListener('wheel', onWheel, { passive: true })
 
@@ -113,8 +128,8 @@ export function useAutoScroll(
             // 滚动事件：当用户主动滚到底部时，立即恢复跟随
             const onScroll = () => {
                 if (programmaticRef.current) return
-                const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
-                if (distance <= 2) {
+                const distance = distanceToBottom(viewport)
+                if (distance <= bottomEpsilonPxRef.current) {
                     updateFollow(true)
                 } else if (userInteractingRef.current) {
                     // 仅在用户交互触发的离底部滚动时，关闭跟随，避免 MO/虚拟列表引起的误判
@@ -144,7 +159,7 @@ export function useAutoScroll(
             moRef.current.observe(viewport, {
                 subtree: true,
                 childList: true,
-                attributes: true,
+                // 只关心“内容本身”的变化：避免 virtua/OverlayScrollbars 的样式与属性更新触发反复贴底
                 characterData: true
             })
 
