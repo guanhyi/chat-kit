@@ -50,8 +50,13 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     )
     const prevContentRef = useRef(content)
 
+    const onSmoothUpdate = useCallback(
+        (text: string) => setDisplayed(postProcess ? postProcess(text) : text),
+        [postProcess]
+    )
+
     const { addChunk, reset } = useSmoothMarkdownStream({
-        onUpdate: (text) => setDisplayed(postProcess ? postProcess(text) : text),
+        onUpdate: onSmoothUpdate,
         streamDone: status !== 'streaming',
         initialText: content || ''
     })
@@ -60,16 +65,23 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         const newContent = content || ''
         const oldContent = prevContentRef.current || ''
         const resetRequired = oldContent && newContent && !newContent.startsWith(oldContent)
+
+        // 关键：当流结束（或非 streaming 状态）时，用 reset 同步 smooth-stream 的内部状态，
+        // 避免尾部 rAF 还在触发 onUpdate，导致显示内容在「最终文本」与「内部缓冲文本」之间来回抖动。
+        if (status !== 'streaming') {
+            reset(newContent)
+            prevContentRef.current = newContent
+            return
+        }
+
         if (resetRequired) {
             reset(newContent)
-        } else if (status === 'streaming') {
+        } else {
             const delta = newContent.substring(oldContent.length)
             if (delta) addChunk(delta)
-        } else {
-            setDisplayed(postProcess ? postProcess(newContent) : newContent)
         }
         prevContentRef.current = newContent
-    }, [content, status, postProcess, addChunk, reset])
+    }, [content, status, addChunk, reset])
 
     const remarkPlugins = useMemo(() => {
         const list: any[] = [

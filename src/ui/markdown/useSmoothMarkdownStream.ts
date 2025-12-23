@@ -37,25 +37,13 @@ export function useSmoothMarkdownStream(options: {
         [segment]
     )
 
-    const reset = useCallback(
-        (newText = '') => {
-            if (rafRef.current) cancelAnimationFrame(rafRef.current)
-            queueRef.current = []
-            textRef.current = newText
-            onUpdate(newText)
-        },
-        [onUpdate]
-    )
-
     const loop = useCallback(
         (ts: number) => {
             // 队列空
             if (queueRef.current.length === 0) {
-                if (streamDone) {
-                    onUpdate(textRef.current)
-                    return
+                if (!streamDone) {
+                    rafRef.current = requestAnimationFrame(loop)
                 }
-                rafRef.current = requestAnimationFrame(loop)
                 return
             }
 
@@ -75,11 +63,27 @@ export function useSmoothMarkdownStream(options: {
             textRef.current += slice.join('')
             onUpdate(textRef.current)
 
-            if (queueRef.current.length > 0) {
+            if (queueRef.current.length > 0 || !streamDone) {
                 rafRef.current = requestAnimationFrame(loop)
             }
         },
         [minDelay, streamDone, onUpdate]
+    )
+
+    const reset = useCallback(
+        (newText = '') => {
+            if (rafRef.current) cancelAnimationFrame(rafRef.current)
+            rafRef.current = null
+            queueRef.current = []
+            textRef.current = newText
+            lastUpdateRef.current = 0
+            onUpdate(newText)
+            // reset 可能发生在流式过程中：需要确保循环会继续跑起来
+            if (!streamDone) {
+                rafRef.current = requestAnimationFrame(loop)
+            }
+        },
+        [onUpdate, streamDone, loop]
     )
 
     useEffect(() => {
@@ -91,4 +95,3 @@ export function useSmoothMarkdownStream(options: {
 
     return { addChunk, reset }
 }
-
