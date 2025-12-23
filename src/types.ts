@@ -1,6 +1,7 @@
 import type { Observable } from 'rxjs'
 import type { HttpEvent } from '@ngify/http'
 import type React from 'react'
+import type { VListHandle } from 'virtua'
 
 /** 最基础的消息结构，调用方可以扩展 */
 export interface BaseMessage {
@@ -200,6 +201,7 @@ export interface UseChatControllerResult<TMessage extends BaseMessage = BaseMess
 export interface ChatBubbleListRef {
     scrollToBottom: (behavior?: ScrollBehavior | 'instant') => void
     nativeElement?: HTMLElement | null
+    vListRef?: React.RefObject<VListHandle | null>
 }
 
 export interface RoleRenderProps<TMessage> {

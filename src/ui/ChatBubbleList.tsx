@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import { useOverlayScrollbars } from 'overlayscrollbars-react'
 import { VList } from 'virtua'
+import type { VListHandle } from 'virtua'
 import type { ChatBubbleListProps, ChatBubbleListRef, BaseMessage } from '../types'
 import { useAutoScroll } from './useAutoScroll'
 
@@ -33,6 +34,7 @@ const ChatBubbleListInner = (
     } = props
 
     const rootRef = useRef<HTMLDivElement | null>(null)
+    const vListRef = useRef<VListHandle | null>(null)
 
     const [initialize, instance] = useOverlayScrollbars({
         defer: true,
@@ -84,7 +86,8 @@ const ChatBubbleListInner = (
                     return osInstance.elements().viewport as HTMLElement
                 }
                 return rootRef.current
-            })()
+            })(),
+            vListRef
         }),
         [autoScrollCtrl, instance]
     )
@@ -126,7 +129,7 @@ const ChatBubbleListInner = (
     }, [messages.length, autoScroll, autoScrollCtrl])
 
     const content = (
-        <VList style={{ height: '100%', width: '100%' }}>
+        <VList ref={vListRef} style={{ height: '100%', width: '100%' }}>
             {messages.map((m, index) => {
                 const roleConfig = roles[m.role]
                 if (!roleConfig) return null
