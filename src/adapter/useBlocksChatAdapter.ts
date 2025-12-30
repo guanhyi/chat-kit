@@ -757,21 +757,23 @@ function createBlocksLifecycle<TExtra = any>(
                     break
                 }
                 case 'citation-update': {
-                    const docs = (event.payload as any)?.docs || []
-                    last.docs = docs
+                    const incomingDocs = (event.payload as any)?.docs || []
+                    const prevDocs = Array.isArray(last.docs) ? last.docs : []
+                    const allDocs = [...prevDocs, ...incomingDocs]
+                    last.docs = allDocs
                     let block: Block | undefined = last.blocks.find((b) => b.type === 'citation')
                     if (!block) {
                         block = {
                             id: Date.now().toString(),
                             type: 'citation',
                             status: 'success',
-                            docs,
+                            docs: allDocs,
                             createdAt: Date.now(),
                             updatedAt: Date.now()
                         }
                         last.blocks.push(block)
                     } else {
-                        block.docs = docs
+                        block.docs = allDocs
                         block.status = 'success'
                         block.updatedAt = Date.now()
                     }
