@@ -103,8 +103,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     }, [mathEngine, allowRawSvg])
 
     const messageContent = useMemo(() => {
-        return citations?.length ? transformCitations(displayed, citations.length) : displayed
-    }, [displayed, citations?.length])
+        return citations ? transformCitations(displayed, citations.length) : displayed
+    }, [displayed, citations, citations?.length])
 
     const urlTransform = useCallback((value: string) => {
         if (value.startsWith('data:image/png') || value.startsWith('data:image/jpeg')) return value
