@@ -45,34 +45,58 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     components,
     citationRender
 }) => {
-    const [displayed, setDisplayed] = useState(
-        postProcess ? postProcess(content || '') : content || ''
+    const rawContent = content || ''
+    const processedContent = useMemo(
+        () => (postProcess ? postProcess(rawContent) : rawContent),
+        [postProcess, rawContent]
     )
-    const prevContentRef = useRef(content)
+
+    const [displayed, setDisplayed] = useState(processedContent)
+    const prevContentRef = useRef(rawContent)
+    const prevStatusRef = useRef(status)
+    const statusRef = useRef(status)
+
+    // 用 ref 承接最新 status，避免流结束后仍有 rAF 回调触发 setState 导致尾段反复渲染
+    useEffect(() => {
+        statusRef.current = status
+    }, [status])
 
     const onSmoothUpdate = useCallback(
-        (text: string) => setDisplayed(postProcess ? postProcess(text) : text),
+        (text: string) => {
+            if (statusRef.current !== 'streaming') return
+            setDisplayed(postProcess ? postProcess(text) : text)
+        },
         [postProcess]
     )
 
     const { addChunk, reset } = useSmoothMarkdownStream({
         onUpdate: onSmoothUpdate,
         streamDone: status !== 'streaming',
-        initialText: content || ''
+        initialText: rawContent
     })
 
     useEffect(() => {
-        const newContent = content || ''
-        const oldContent = prevContentRef.current || ''
-        const resetRequired = oldContent && newContent && !newContent.startsWith(oldContent)
+        const newContent = rawContent
+        const oldContent = prevContentRef.current
+        const prevStatus = prevStatusRef.current
 
-        // 关键：当流结束（或非 streaming 状态）时，用 reset 同步 smooth-stream 的内部状态，
-        // 避免尾部 rAF 还在触发 onUpdate，导致显示内容在「最终文本」与「内部缓冲文本」之间来回抖动。
+        // 非 streaming：复位内部队列并停止 rAF（渲染直接使用 processedContent，避免尾段被反复触发）
         if (status !== 'streaming') {
             reset(newContent)
             prevContentRef.current = newContent
+            prevStatusRef.current = status
             return
         }
+
+        // streaming 起始：以当前 content 作为基线，避免从上一轮尾部继续追加
+        if (prevStatus !== 'streaming') {
+            reset(newContent)
+            prevContentRef.current = newContent
+            prevStatusRef.current = status
+            return
+        }
+
+        const resetRequired = oldContent && newContent && !newContent.startsWith(oldContent)
 
         if (resetRequired) {
             reset(newContent)
@@ -81,7 +105,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             if (delta) addChunk(delta)
         }
         prevContentRef.current = newContent
-    }, [content, status, addChunk, reset])
+        prevStatusRef.current = status
+    }, [rawContent, status, addChunk, reset])
 
     const remarkPlugins = useMemo(() => {
         const list: any[] = [
@@ -102,9 +127,10 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         return list
     }, [mathEngine, allowRawSvg])
 
+    const renderText = status === 'streaming' ? displayed : processedContent
     const messageContent = useMemo(() => {
-        return citations ? transformCitations(displayed, citations.length) : displayed
-    }, [displayed, citations, citations?.length])
+        return citations ? transformCitations(renderText, citations.length) : renderText
+    }, [renderText, citations, citations?.length])
 
     const urlTransform = useCallback((value: string) => {
         if (value.startsWith('data:image/png') || value.startsWith('data:image/jpeg')) return value

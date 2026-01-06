@@ -18,56 +18,75 @@ export function useSmoothMarkdownStream(options: {
     const textRef = useRef<string>(initialText)
     const lastUpdateRef = useRef<number>(0)
 
+    const onUpdateRef = useRef(onUpdate)
+    const streamDoneRef = useRef(streamDone)
+    const minDelayRef = useRef(minDelay)
+    const segmenterRef = useRef<any>(null)
+
+    useEffect(() => {
+        onUpdateRef.current = onUpdate
+    }, [onUpdate])
+
+    useEffect(() => {
+        streamDoneRef.current = streamDone
+    }, [streamDone])
+
+    useEffect(() => {
+        minDelayRef.current = minDelay
+    }, [minDelay])
+
     const segment = useCallback((chunk: string) => {
-        // 优先使用 Intl.Segmenter（语言组合尽量覆盖中英）
-        // 不存在时降级为 code point 拆分
-        const hasSegmenter = typeof (globalThis as any).Intl?.Segmenter === 'function'
-        if (hasSegmenter) {
-            const segmenter = new (globalThis as any).Intl.Segmenter(['zh-CN', 'en-US'])
-            return Array.from(segmenter.segment(chunk)).map((s: any) => s.segment as string)
+        // 优先使用 Intl.Segmenter（语言组合尽量覆盖中英）；不存在时降级为 code point 拆分
+        const Segmenter = (globalThis as any).Intl?.Segmenter
+        if (typeof Segmenter === 'function') {
+            if (!segmenterRef.current) {
+                segmenterRef.current = new Segmenter(['zh-CN', 'en-US'])
+            }
+            return Array.from(segmenterRef.current.segment(chunk)).map((s: any) => s.segment as string)
         }
         return Array.from(chunk)
+    }, [])
+
+    const loop = useCallback((ts: number) => {
+        // 本帧开始，先把「已安排的下一帧」标记清空，避免外部 addChunk/reset 无法正确判断是否需要启动循环。
+        rafRef.current = null
+
+        // 队列空：停止（等待 addChunk 重新唤醒）
+        if (queueRef.current.length === 0) {
+            return
+        }
+
+        const minDelayMs = minDelayRef.current
+        if (ts - lastUpdateRef.current < minDelayMs) {
+            rafRef.current = requestAnimationFrame(loop)
+            return
+        }
+        lastUpdateRef.current = ts
+
+        // 动态批量合并（流结束时一次性输出）
+        const done = streamDoneRef.current
+        const count = done
+            ? queueRef.current.length
+            : Math.max(1, Math.floor(queueRef.current.length / 5))
+        const slice = queueRef.current.slice(0, count)
+        queueRef.current = queueRef.current.slice(count)
+        textRef.current += slice.join('')
+        onUpdateRef.current(textRef.current)
+
+        if (queueRef.current.length > 0) {
+            rafRef.current = requestAnimationFrame(loop)
+        }
     }, [])
 
     const addChunk = useCallback(
         (chunk: string) => {
             if (!chunk) return
-            queueRef.current = [...queueRef.current, ...segment(chunk)]
-        },
-        [segment]
-    )
-
-    const loop = useCallback(
-        (ts: number) => {
-            // 队列空
-            if (queueRef.current.length === 0) {
-                if (!streamDone) {
-                    rafRef.current = requestAnimationFrame(loop)
-                }
-                return
-            }
-
-            // 控制最小间隔
-            if (ts - lastUpdateRef.current < minDelay) {
-                rafRef.current = requestAnimationFrame(loop)
-                return
-            }
-            lastUpdateRef.current = ts
-
-            // 动态批量合并（流结束时一次性输出）
-            const count = streamDone
-                ? queueRef.current.length
-                : Math.max(1, Math.floor(queueRef.current.length / 5))
-            const slice = queueRef.current.slice(0, count)
-            queueRef.current = queueRef.current.slice(count)
-            textRef.current += slice.join('')
-            onUpdate(textRef.current)
-
-            if (queueRef.current.length > 0 || !streamDone) {
+            queueRef.current.push(...segment(chunk))
+            if (rafRef.current == null) {
                 rafRef.current = requestAnimationFrame(loop)
             }
         },
-        [minDelay, streamDone, onUpdate]
+        [segment, loop]
     )
 
     const reset = useCallback(
@@ -77,21 +96,16 @@ export function useSmoothMarkdownStream(options: {
             queueRef.current = []
             textRef.current = newText
             lastUpdateRef.current = 0
-            onUpdate(newText)
-            // reset 可能发生在流式过程中：需要确保循环会继续跑起来
-            if (!streamDone) {
-                rafRef.current = requestAnimationFrame(loop)
-            }
+            onUpdateRef.current(newText)
         },
-        [onUpdate, streamDone, loop]
+        []
     )
 
     useEffect(() => {
-        rafRef.current = requestAnimationFrame(loop)
         return () => {
             if (rafRef.current) cancelAnimationFrame(rafRef.current)
         }
-    }, [loop])
+    }, [])
 
     return { addChunk, reset }
 }
