@@ -75,6 +75,7 @@ function analyzeMarkdown(source: string, options: RemarkSemiStreamingOptions) {
     const stack: StackEntry[] = []
     const inlineCodeLengths: number[] = []
     const fenceStack: { marker: '`' | '~'; length: number }[] = []
+    let linkDestinationDepth = 0
 
     const pushEntry = (entry: StackEntry) => {
         stack.push(entry)
@@ -109,6 +110,18 @@ function analyzeMarkdown(source: string, options: RemarkSemiStreamingOptions) {
         const char = source[index]
         const prev = index > 0 ? source[index - 1] : ''
         const startOfLine = index === 0 || source[index - 1] === '\n'
+
+        // Link destination（[text](url) 的 url 部分）内部不应该解析强调/删除线/行内代码等分隔符；
+        // 否则像 `.../_abc_def...` 这种 URL 会被误判为未闭合的 `_`，最终在尾部补出多余下划线。
+        if (enableLinks && linkDestinationDepth > 0) {
+            if (char === ')' && prev !== '\\') {
+                const removed = removeEntry((entry) => entry.type === 'linkDestination')
+                if (removed) {
+                    linkDestinationDepth = Math.max(0, linkDestinationDepth - 1)
+                }
+            }
+            continue
+        }
 
         if (enableFences && startOfLine && (char === '`' || char === '~')) {
             let length = 1
@@ -227,12 +240,16 @@ function analyzeMarkdown(source: string, options: RemarkSemiStreamingOptions) {
             const prevNonSpace = lastNonSpace(source, index - 1)
             if (prevNonSpace === ']') {
                 pushEntry({ type: 'linkDestination' })
+                linkDestinationDepth++
             }
             continue
         }
 
         if (enableLinks && char === ')' && prev !== '\\') {
-            removeEntry((entry) => entry.type === 'linkDestination')
+            const removed = removeEntry((entry) => entry.type === 'linkDestination')
+            if (removed) {
+                linkDestinationDepth = Math.max(0, linkDestinationDepth - 1)
+            }
         }
     }
 
