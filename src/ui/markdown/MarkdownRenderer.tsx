@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import ReactMarkdown, { MarkdownHooks as ReactMarkdownHooks, defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
@@ -13,7 +13,7 @@ import { transformCitations } from './utils'
 import { useSmoothMarkdownStream } from './useSmoothMarkdownStream'
 import { remarkSemiStreaming } from './plugins/semi-streaming'
 import { Link, type CitationProps } from './mdx/Link'
-import rehypeMermaid from 'rehype-mermaid'
+import rehypeMermaidSafe from './plugins/mermaid-safe'
 
 export type MathEngine = 'KaTeX' | 'MathJax' | 'none'
 
@@ -119,14 +119,30 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         return list
     }, [])
 
-    const rehypePlugins = useMemo(() => {
-        const list: any[] = [rehypeMermaid]
+    const reactId = useId()
+    // `useId()` 可能含 `:`，作为 DOM id 时选择器语义复杂，这里替换成 `_` 以降低踩坑概率
+    const mermaidPrefix = useMemo(() => `mermaid-${reactId.replaceAll(':', '_')}`, [reactId])
+
+    // streaming 渲染链：保持纯同步（ReactMarkdown 内部走 `runSync`），避免异步插件直接报错/卡顿
+    const rehypePluginsSync = useMemo(() => {
+        const list: any[] = []
         if (allowRawSvg) list.push(rehypeRaw)
         list.push(rehypeFootnoteLinks)
         if (mathEngine === 'KaTeX') list.push(rehypeKatex)
         if (mathEngine === 'MathJax') list.push(rehypeMathjax)
         return list
     }, [mathEngine, allowRawSvg])
+
+    // 非 streaming：使用 Hooks 版本以支持异步插件（rehype-mermaid 默认会异步渲染）
+    const rehypePluginsAsync = useMemo(() => {
+        const list: any[] = []
+        if (allowRawSvg) list.push(rehypeRaw)
+        list.push([rehypeMermaidSafe, { prefix: mermaidPrefix }])
+        list.push(rehypeFootnoteLinks)
+        if (mathEngine === 'KaTeX') list.push(rehypeKatex)
+        if (mathEngine === 'MathJax') list.push(rehypeMathjax)
+        return list
+    }, [mathEngine, allowRawSvg, mermaidPrefix])
 
     const renderText = status === 'streaming' ? displayed : processedContent
     const messageContent = useMemo(() => {
@@ -142,16 +158,46 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         return (props: any) => <Link citations={citations} render={citationRender} {...props} />
     }, [citations, citationRender])
 
-    return (
-        <div className={className}>
+    const markdownComponents = useMemo(() => {
+        return { a: A, ...(components || {}) }
+    }, [A, components])
+
+    const markdownFallback = useMemo(() => {
+        // Mermaid 渲染（异步）尚未完成时，先用同步链路把 Markdown 呈现出来，避免空白闪烁
+        return (
             <ReactMarkdown
                 remarkPlugins={remarkPlugins}
-                rehypePlugins={rehypePlugins}
-                components={{ a: A, ...(components || {}) }}
+                rehypePlugins={rehypePluginsSync}
+                components={markdownComponents}
                 urlTransform={urlTransform}
             >
                 {messageContent}
             </ReactMarkdown>
+        )
+    }, [messageContent, markdownComponents, rehypePluginsSync, remarkPlugins, urlTransform])
+
+    return (
+        <div className={className}>
+            {status === 'streaming' ? (
+                <ReactMarkdown
+                    remarkPlugins={remarkPlugins}
+                    rehypePlugins={rehypePluginsSync}
+                    components={markdownComponents}
+                    urlTransform={urlTransform}
+                >
+                    {messageContent}
+                </ReactMarkdown>
+            ) : (
+                <ReactMarkdownHooks
+                    remarkPlugins={remarkPlugins}
+                    rehypePlugins={rehypePluginsAsync}
+                    components={markdownComponents}
+                    urlTransform={urlTransform}
+                    fallback={markdownFallback}
+                >
+                    {messageContent}
+                </ReactMarkdownHooks>
+            )}
         </div>
     )
 }
