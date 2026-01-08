@@ -176,17 +176,69 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         )
     }, [messageContent, markdownComponents, rehypePluginsSync, remarkPlugins, urlTransform])
 
+    const { streamingStableContent, streamingTailContent } = useMemo(() => {
+        if (status !== 'streaming') {
+            return { streamingStableContent: '', streamingTailContent: '' }
+        }
+        const { stable, tail } = splitAtLastClosedMermaidFence(messageContent)
+        return { streamingStableContent: stable, streamingTailContent: tail }
+    }, [messageContent, status])
+
+    const streamingStableFallback = useMemo(() => {
+        if (!streamingStableContent) return null
+        return (
+            <ReactMarkdown
+                remarkPlugins={remarkPlugins}
+                rehypePlugins={rehypePluginsSync}
+                components={markdownComponents}
+                urlTransform={urlTransform}
+            >
+                {streamingStableContent}
+            </ReactMarkdown>
+        )
+    }, [
+        markdownComponents,
+        rehypePluginsSync,
+        remarkPlugins,
+        streamingStableContent,
+        urlTransform
+    ])
+
     return (
         <div className={className}>
             {status === 'streaming' ? (
-                <ReactMarkdown
-                    remarkPlugins={remarkPlugins}
-                    rehypePlugins={rehypePluginsSync}
-                    components={markdownComponents}
-                    urlTransform={urlTransform}
-                >
-                    {messageContent}
-                </ReactMarkdown>
+                streamingStableContent ? (
+                    <>
+                        <ReactMarkdownHooks
+                            remarkPlugins={remarkPlugins}
+                            rehypePlugins={rehypePluginsAsync}
+                            components={markdownComponents}
+                            urlTransform={urlTransform}
+                            fallback={streamingStableFallback}
+                        >
+                            {streamingStableContent}
+                        </ReactMarkdownHooks>
+                        {streamingTailContent ? (
+                            <ReactMarkdown
+                                remarkPlugins={remarkPlugins}
+                                rehypePlugins={rehypePluginsSync}
+                                components={markdownComponents}
+                                urlTransform={urlTransform}
+                            >
+                                {streamingTailContent}
+                            </ReactMarkdown>
+                        ) : null}
+                    </>
+                ) : (
+                    <ReactMarkdown
+                        remarkPlugins={remarkPlugins}
+                        rehypePlugins={rehypePluginsSync}
+                        components={markdownComponents}
+                        urlTransform={urlTransform}
+                    >
+                        {messageContent}
+                    </ReactMarkdown>
+                )
             ) : (
                 <ReactMarkdownHooks
                     remarkPlugins={remarkPlugins}
@@ -203,3 +255,50 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 }
 
 export default MarkdownRenderer
+
+function splitAtLastClosedMermaidFence(source: string): { stable: string; tail: string } {
+    if (!source) return { stable: '', tail: source }
+
+    let insideMermaid = false
+    let markerChar: '`' | '~' | null = null
+    let markerLength = 0
+    let lastClosedEnd = 0
+
+    let index = 0
+    while (index < source.length) {
+        const lineBreakIndex = source.indexOf('\n', index)
+        const end = lineBreakIndex === -1 ? source.length : lineBreakIndex + 1
+        const lineWithNewline = source.slice(index, end)
+        const line = lineWithNewline.replace(/\r?\n$/, '')
+
+        if (!insideMermaid) {
+            const open = line.match(/^[ \t]{0,3}([`~]{3,})\s*mermaid(?:\s|$)/i)
+            if (open) {
+                const fence = open[1]
+                markerChar = fence[0] === '`' ? '`' : '~'
+                markerLength = fence.length
+                insideMermaid = true
+            }
+        } else if (markerChar) {
+            const close = line.match(/^[ \t]{0,3}([`~]{3,})[ \t]*$/)
+            if (close) {
+                const fence = close[1]
+                const fenceChar = fence[0] === '`' ? '`' : '~'
+                if (fenceChar === markerChar && fence.length >= markerLength) {
+                    insideMermaid = false
+                    markerChar = null
+                    markerLength = 0
+                    lastClosedEnd = end
+                }
+            }
+        }
+
+        index = end
+    }
+
+    if (!lastClosedEnd) return { stable: '', tail: source }
+    return {
+        stable: source.slice(0, lastClosedEnd),
+        tail: source.slice(lastClosedEnd)
+    }
+}
