@@ -13,6 +13,7 @@ import { transformCitations } from './utils'
 import { useSmoothMarkdownStream } from './useSmoothMarkdownStream'
 import { remarkSemiStreaming } from './plugins/semi-streaming'
 import { Link, type CitationProps } from './mdx/Link'
+import rehypeMermaid from 'rehype-mermaid'
 
 export type MathEngine = 'KaTeX' | 'MathJax' | 'none'
 
@@ -119,7 +120,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     }, [])
 
     const rehypePlugins = useMemo(() => {
-        const list: any[] = []
+        const list: any[] = [rehypeMermaid]
         if (allowRawSvg) list.push(rehypeRaw)
         list.push(rehypeFootnoteLinks)
         if (mathEngine === 'KaTeX') list.push(rehypeKatex)
