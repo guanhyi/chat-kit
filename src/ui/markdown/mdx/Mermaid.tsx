@@ -129,6 +129,57 @@ function applyThemeTo(code: string, theme: 'light' | 'dark') {
     return themeConfig + code
 }
 
+function trimTrailingEmptyLines(code: string) {
+    const lines = code.split(/\r?\n/)
+    while (lines.length > 0 && !lines[lines.length - 1].trim()) {
+        lines.pop()
+    }
+    return lines
+}
+
+async function canParseMermaid(mermaid: any, code: string, theme: 'light' | 'dark') {
+    try {
+        if (!mermaid || typeof mermaid.parse !== 'function') return false
+        const res = await mermaid.parse(applyThemeTo(code, theme), { suppressErrors: true })
+        return !!res
+    } catch {
+        return false
+    }
+}
+
+async function findParseablePrefixByLines(
+    mermaid: any,
+    fullCode: string,
+    theme: 'light' | 'dark',
+    options: { isStale?: () => boolean; maxAttempts?: number; maxMs?: number; requireTrim?: boolean } = {}
+) {
+    const { isStale, maxAttempts = 28, maxMs = 220, requireTrim = false } = options
+    const startedAt = Date.now()
+
+    const safeCandidate = getSafePrefixCandidate(fullCode)
+    const lines = trimTrailingEmptyLines(safeCandidate)
+    if (!lines.length) return null
+
+    let attempts = 0
+    const shouldRequireTrim = requireTrim && safeCandidate === fullCode
+    const startEnd = shouldRequireTrim ? Math.max(1, lines.length - 1) : lines.length
+
+    for (let end = startEnd; end >= 1; end--) {
+        if (isStale?.()) return null
+        if (attempts >= maxAttempts) return null
+        if (Date.now() - startedAt > maxMs) return null
+        attempts++
+
+        const candidate = lines.slice(0, end).join('\n').trimEnd()
+        if (!candidate.trim()) continue
+
+        const ok = await canParseMermaid(mermaid, candidate, theme)
+        if (ok) return candidate
+    }
+
+    return null
+}
+
 // 参照 markstream-vue：启发式剪裁尾部不完整行，提高流式中可渲染概率
 function getSafePrefixCandidate(code: string): string {
     const lines = code.split(/\r?\n/)
@@ -266,6 +317,48 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
         return (code ?? '').replace(/\n+$/, '\n')
     }, [code])
 
+    const lastSeenCodeRef = useRef<string>(normalizedCode)
+    const autoStreamingTimerRef = useRef<number | null>(null)
+    const [autoStreaming, setAutoStreaming] = useState(false)
+
+    // 外部没有正确传入 streaming 时：根据 code 是否持续变化来“自动判定流式中”
+    useEffect(() => {
+        if (typeof window === 'undefined') return
+
+        if (streaming) {
+            lastSeenCodeRef.current = normalizedCode
+            if (autoStreamingTimerRef.current != null) {
+                window.clearTimeout(autoStreamingTimerRef.current)
+                autoStreamingTimerRef.current = null
+            }
+            setAutoStreaming(false)
+            return
+        }
+
+        if (normalizedCode !== lastSeenCodeRef.current) {
+            lastSeenCodeRef.current = normalizedCode
+            setAutoStreaming(true)
+            if (autoStreamingTimerRef.current != null) {
+                window.clearTimeout(autoStreamingTimerRef.current)
+            }
+            autoStreamingTimerRef.current = window.setTimeout(() => {
+                autoStreamingTimerRef.current = null
+                setAutoStreaming(false)
+            }, 800)
+        }
+    }, [normalizedCode, streaming])
+
+    useEffect(() => {
+        return () => {
+            if (autoStreamingTimerRef.current != null) {
+                window.clearTimeout(autoStreamingTimerRef.current)
+                autoStreamingTimerRef.current = null
+            }
+        }
+    }, [])
+
+    const effectiveStreaming = streaming || autoStreaming
+
     const heightStyle = useMemo(() => {
         if (typeof maxHeight === 'number') return `${maxHeight}px`
         return maxHeight
@@ -398,7 +491,7 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
         renderSeqRef.current += 1
         const seq = renderSeqRef.current
 
-        const delay = streaming ? 220 : 0
+        const delay = effectiveStreaming ? 220 : 0
         if (timerRef.current != null) {
             window.clearTimeout(timerRef.current)
         }
@@ -415,33 +508,39 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
                     })
                     if (okFull) return
 
-                    // 2) 完整渲染失败：用安全前缀做渐进式预览（更像“边生成边出图”）
-                    const prefix = getSafePrefixCandidate(normalized)
-                    if (prefix && prefix.trim() && prefix !== normalized) {
-                        // 只有当 prefix 比上一次成功渲染更“靠后”时才更新，避免明显回退
-                        const prefixKey = prefix.replace(/\s+/g, '')
-                        const lastKey = lastGoodCodeKeyRef.current
-                        const allowUpgrade =
-                            !lastKey || prefixKey.length >= lastKey.length || key.length < lastKey.length
-                        if (allowUpgrade) {
-                            const okPrefix = await renderSvg(prefix, {
-                                seq,
-                                idSuffix: `prefix-${seq}`,
-                                partial: true
-                            })
-                            if (okPrefix) return
+                    // 2) 完整渲染失败：在流式阶段寻找「可解析前缀」做渐进式预览
+                    if (effectiveStreaming) {
+                        const mermaid = await getMermaid()
+                        const prefix = await findParseablePrefixByLines(mermaid, normalized, theme, {
+                            isStale: () => renderSeqRef.current !== seq,
+                            requireTrim: true
+                        })
+                        if (prefix && prefix.trim()) {
+                            // 只有当 prefix 比上一次成功渲染更“靠后”时才更新，避免明显回退
+                            const prefixKey = prefix.replace(/\s+/g, '')
+                            const lastKey = lastGoodCodeKeyRef.current
+                            const allowUpgrade =
+                                !lastKey || prefixKey.length >= lastKey.length || key.length < lastKey.length
+                            if (allowUpgrade) {
+                                const okPrefix = await renderSvg(prefix, {
+                                    seq,
+                                    idSuffix: `prefix-${seq}`,
+                                    partial: true
+                                })
+                                if (okPrefix) return
+                            }
                         }
                     }
 
                     // 3) 仍失败：流式中保持静默；流结束后再展示错误
-                    if (!streaming) {
+                    if (!effectiveStreaming) {
                         setErrorText('Mermaid 渲染失败：请检查语法是否正确')
                     } else {
                         setErrorText('')
                     }
                 } catch (error) {
                     if (renderSeqRef.current !== seq) return
-                    if (!streaming) {
+                    if (!effectiveStreaming) {
                         setErrorText(error instanceof Error ? error.message : String(error))
                     } else {
                         setErrorText('')
@@ -461,7 +560,7 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
                 timerRef.current = null
             }
         }
-    }, [normalizedCode, streaming, isDark, renderSvg, safeSvg])
+    }, [normalizedCode, effectiveStreaming, isDark, renderSvg, safeSvg])
 
     const containerRef = useRef<HTMLDivElement | null>(null)
     const modalContainerRef = useRef<HTMLDivElement | null>(null)
@@ -525,10 +624,10 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
             <div className="flex items-center justify-between gap-2 border-b border-neutral-200 bg-neutral-50 px-2 py-1 dark:border-neutral-800 dark:bg-neutral-900">
                 <div className="flex min-w-0 items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
                     <span className="font-medium text-neutral-700 dark:text-neutral-200">Mermaid</span>
-                    {streaming ? <span>流式生成中</span> : null}
+                    {effectiveStreaming ? <span>流式生成中</span> : null}
                     {isPartial ? <span>（预览）</span> : null}
                     {isRendering ? <span>渲染中…</span> : null}
-                    {!streaming && errorText ? (
+                    {!effectiveStreaming && errorText ? (
                         <span className="truncate text-red-600 dark:text-red-400">渲染失败：{errorText}</span>
                     ) : null}
                 </div>
@@ -596,7 +695,7 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
         resetTransform,
         safeSvg,
         showSource,
-        streaming
+        effectiveStreaming
     ])
 
     const Preview = useMemo(() => {
@@ -606,7 +705,11 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
         if (!hasSvg) {
             return (
                 <div className="p-3 text-sm text-neutral-500 dark:text-neutral-400">
-                    {streaming ? 'Mermaid 图表生成中…' : errorText ? `渲染失败：${errorText}` : 'Mermaid 图表生成中…'}
+                    {effectiveStreaming
+                        ? 'Mermaid 图表生成中…'
+                        : errorText
+                        ? `渲染失败：${errorText}`
+                        : 'Mermaid 图表生成中…'}
                 </div>
             )
         }
@@ -631,7 +734,18 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
                 </div>
             </div>
         )
-    }, [errorText, heightStyle, onPointerDown, onPointerMove, onPointerUp, safeSvg, streaming, translateX, translateY, zoom])
+    }, [
+        effectiveStreaming,
+        errorText,
+        heightStyle,
+        onPointerDown,
+        onPointerMove,
+        onPointerUp,
+        safeSvg,
+        translateX,
+        translateY,
+        zoom
+    ])
 
     const ModalPreview = useMemo(() => {
         const hasSvg = !!(safeSvg || lastGoodSvgRef.current)
