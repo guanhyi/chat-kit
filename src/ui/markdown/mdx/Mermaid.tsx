@@ -1,20 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState, useId } from 'react'
+import mermaid from 'mermaid'
 
-type MermaidModule = {
-    default?: any
-}
-
-let mermaidPromise: Promise<any> | null = null
 let mermaidInitialized = false
 
 async function getMermaid() {
-    if (!mermaidPromise) {
-        mermaidPromise = import('mermaid') as Promise<MermaidModule>
-    }
-
-    const mod = await mermaidPromise
-    const mermaid = (mod as any).default ?? mod
-
     if (!mermaidInitialized) {
         mermaid.initialize({
             startOnLoad: false,
@@ -137,7 +126,13 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, streaming 
 
     return (
         <div data-mermaid-block="true" className="mermaid-wrapper">
-            <pre>{streaming ? 'Mermaid 图表生成中…' : errorText ? `渲染失败：${errorText}` : 'Mermaid 图表生成中…'}</pre>
+            <pre>
+                {streaming
+                    ? 'Mermaid 图表生成中…'
+                    : errorText
+                    ? `渲染失败：${errorText}`
+                    : 'Mermaid 图表生成中…'}
+            </pre>
             <pre>{code}</pre>
         </div>
     )
