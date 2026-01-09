@@ -109,16 +109,42 @@ function scrubSvgElement(svgEl: SVGElement) {
 }
 
 function toSafeSvgString(svg: string | null | undefined): string {
-    if (typeof window === 'undefined' || typeof DOMParser === 'undefined') return ''
+    if (typeof window === 'undefined') return ''
     if (!svg) return ''
 
     const neutralized = neutralizeScriptProtocols(svg)
-    const parsed = new DOMParser().parseFromString(neutralized, 'image/svg+xml')
-    const svgEl = parsed.documentElement
-    if (!svgEl || svgEl.nodeName.toLowerCase() !== 'svg') return ''
-    const svgElement = svgEl as unknown as SVGElement
-    scrubSvgElement(svgElement)
-    return svgElement.outerHTML || ''
+
+    // 优先按 SVG/XML 解析：更接近真实 SVG 结构
+    if (typeof DOMParser !== 'undefined') {
+        try {
+            const parsed = new DOMParser().parseFromString(neutralized, 'image/svg+xml')
+            const svgEl = parsed.documentElement
+            if (svgEl && svgEl.nodeName.toLowerCase() === 'svg') {
+                const svgElement = svgEl as unknown as SVGElement
+                scrubSvgElement(svgElement)
+                return svgElement.outerHTML || ''
+            }
+        } catch {
+            // ignore
+        }
+    }
+
+    // 回退：有些 Mermaid 输出在 foreignObject/HTML 标签（如 <br>）上并非严格 XML，
+    // 使用 HTML 解析可避免 DOMParser(image/svg+xml) 直接给出 parsererror。
+    if (typeof document !== 'undefined') {
+        try {
+            const container = document.createElement('div')
+            container.innerHTML = neutralized
+            const svgEl = container.querySelector('svg')
+            if (!svgEl) return ''
+            scrubSvgElement(svgEl as unknown as SVGElement)
+            return (svgEl as any).outerHTML || ''
+        } catch {
+            return ''
+        }
+    }
+
+    return ''
 }
 
 function applyThemeTo(code: string, theme: 'light' | 'dark') {
