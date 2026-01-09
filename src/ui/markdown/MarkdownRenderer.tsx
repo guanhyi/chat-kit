@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import ReactMarkdown, { MarkdownHooks as ReactMarkdownHooks, defaultUrlTransform } from 'react-markdown'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
@@ -13,7 +13,7 @@ import { transformCitations } from './utils'
 import { useSmoothMarkdownStream } from './useSmoothMarkdownStream'
 import { remarkSemiStreaming } from './plugins/semi-streaming'
 import { Link, type CitationProps } from './mdx/Link'
-import rehypeMermaidSafe from './plugins/mermaid-safe'
+import { MermaidDiagram } from './mdx/Mermaid'
 
 export type MathEngine = 'KaTeX' | 'MathJax' | 'none'
 
@@ -119,12 +119,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         return list
     }, [])
 
-    const reactId = useId()
-    // `useId()` 可能含 `:`，作为 DOM id 时选择器语义复杂，这里替换成 `_` 以降低踩坑概率
-    const mermaidPrefix = useMemo(() => `mermaid-${reactId.replaceAll(':', '_')}`, [reactId])
-
-    // streaming 渲染链：保持纯同步（ReactMarkdown 内部走 `runSync`），避免异步插件直接报错/卡顿
-    const rehypePluginsSync = useMemo(() => {
+    const rehypePlugins = useMemo(() => {
         const list: any[] = []
         if (allowRawSvg) list.push(rehypeRaw)
         list.push(rehypeFootnoteLinks)
@@ -132,17 +127,6 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         if (mathEngine === 'MathJax') list.push(rehypeMathjax)
         return list
     }, [mathEngine, allowRawSvg])
-
-    // 非 streaming：使用 Hooks 版本以支持异步插件（rehype-mermaid 默认会异步渲染）
-    const rehypePluginsAsync = useMemo(() => {
-        const list: any[] = []
-        if (allowRawSvg) list.push(rehypeRaw)
-        list.push([rehypeMermaidSafe, { prefix: mermaidPrefix }])
-        list.push(rehypeFootnoteLinks)
-        if (mathEngine === 'KaTeX') list.push(rehypeKatex)
-        if (mathEngine === 'MathJax') list.push(rehypeMathjax)
-        return list
-    }, [mathEngine, allowRawSvg, mermaidPrefix])
 
     const renderText = status === 'streaming' ? displayed : processedContent
     const messageContent = useMemo(() => {
@@ -158,147 +142,57 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         return (props: any) => <Link citations={citations} render={citationRender} {...props} />
     }, [citations, citationRender])
 
-    const markdownComponents = useMemo(() => {
-        return { a: A, ...(components || {}) }
-    }, [A, components])
+    const Code = useMemo(() => {
+        return (props: any) => {
+            const { children, className, node, ...rest } = props
+            void node
+            const match = /language-(\w+)/.exec(className || '')
+            const lang = match?.[1]
+            if (lang === 'mermaid') {
+                const code = String(children ?? '').replace(/\n$/, '')
+                return <MermaidDiagram code={code} streaming={status === 'streaming'} />
+            }
+            return (
+                <code {...rest} className={className}>
+                    {children}
+                </code>
+            )
+        }
+    }, [status])
 
-    const markdownFallback = useMemo(() => {
-        // Mermaid 渲染（异步）尚未完成时，先用同步链路把 Markdown 呈现出来，避免空白闪烁
-        return (
+    const Pre = useMemo(() => {
+        return (props: any) => {
+            const { children, node, ...rest } = props
+            void node
+            const list = React.Children.toArray(children)
+            const hasMermaid = list.some(
+                (child) =>
+                    React.isValidElement(child) &&
+                    (child.type === MermaidDiagram || (child.props as any)?.['data-mermaid-block'])
+            )
+            if (hasMermaid) {
+                return <div {...rest}>{children}</div>
+            }
+            return <pre {...rest}>{children}</pre>
+        }
+    }, [])
+
+    const markdownComponents = useMemo(() => {
+        return { a: A, code: Code, pre: Pre, ...(components || {}) }
+    }, [A, Code, Pre, components])
+
+    return (
+        <div className={className}>
             <ReactMarkdown
                 remarkPlugins={remarkPlugins}
-                rehypePlugins={rehypePluginsSync}
+                rehypePlugins={rehypePlugins}
                 components={markdownComponents}
                 urlTransform={urlTransform}
             >
                 {messageContent}
             </ReactMarkdown>
-        )
-    }, [messageContent, markdownComponents, rehypePluginsSync, remarkPlugins, urlTransform])
-
-    const { streamingStableContent, streamingTailContent } = useMemo(() => {
-        if (status !== 'streaming') {
-            return { streamingStableContent: '', streamingTailContent: '' }
-        }
-        const { stable, tail } = splitAtLastClosedMermaidFence(messageContent)
-        return { streamingStableContent: stable, streamingTailContent: tail }
-    }, [messageContent, status])
-
-    const streamingStableFallback = useMemo(() => {
-        if (!streamingStableContent) return null
-        return (
-            <ReactMarkdown
-                remarkPlugins={remarkPlugins}
-                rehypePlugins={rehypePluginsSync}
-                components={markdownComponents}
-                urlTransform={urlTransform}
-            >
-                {streamingStableContent}
-            </ReactMarkdown>
-        )
-    }, [
-        markdownComponents,
-        rehypePluginsSync,
-        remarkPlugins,
-        streamingStableContent,
-        urlTransform
-    ])
-
-    return (
-        <div className={className}>
-            {status === 'streaming' ? (
-                streamingStableContent ? (
-                    <>
-                        <ReactMarkdownHooks
-                            remarkPlugins={remarkPlugins}
-                            rehypePlugins={rehypePluginsAsync}
-                            components={markdownComponents}
-                            urlTransform={urlTransform}
-                            fallback={streamingStableFallback}
-                        >
-                            {streamingStableContent}
-                        </ReactMarkdownHooks>
-                        {streamingTailContent ? (
-                            <ReactMarkdown
-                                remarkPlugins={remarkPlugins}
-                                rehypePlugins={rehypePluginsSync}
-                                components={markdownComponents}
-                                urlTransform={urlTransform}
-                            >
-                                {streamingTailContent}
-                            </ReactMarkdown>
-                        ) : null}
-                    </>
-                ) : (
-                    <ReactMarkdown
-                        remarkPlugins={remarkPlugins}
-                        rehypePlugins={rehypePluginsSync}
-                        components={markdownComponents}
-                        urlTransform={urlTransform}
-                    >
-                        {messageContent}
-                    </ReactMarkdown>
-                )
-            ) : (
-                <ReactMarkdownHooks
-                    remarkPlugins={remarkPlugins}
-                    rehypePlugins={rehypePluginsAsync}
-                    components={markdownComponents}
-                    urlTransform={urlTransform}
-                    fallback={markdownFallback}
-                >
-                    {messageContent}
-                </ReactMarkdownHooks>
-            )}
         </div>
     )
 }
 
 export default MarkdownRenderer
-
-function splitAtLastClosedMermaidFence(source: string): { stable: string; tail: string } {
-    if (!source) return { stable: '', tail: source }
-
-    let insideMermaid = false
-    let markerChar: '`' | '~' | null = null
-    let markerLength = 0
-    let lastClosedEnd = 0
-
-    let index = 0
-    while (index < source.length) {
-        const lineBreakIndex = source.indexOf('\n', index)
-        const end = lineBreakIndex === -1 ? source.length : lineBreakIndex + 1
-        const lineWithNewline = source.slice(index, end)
-        const line = lineWithNewline.replace(/\r?\n$/, '')
-
-        if (!insideMermaid) {
-            const open = line.match(/^[ \t]{0,3}([`~]{3,})\s*mermaid(?:\s|$)/i)
-            if (open) {
-                const fence = open[1]
-                markerChar = fence[0] === '`' ? '`' : '~'
-                markerLength = fence.length
-                insideMermaid = true
-            }
-        } else if (markerChar) {
-            const close = line.match(/^[ \t]{0,3}([`~]{3,})[ \t]*$/)
-            if (close) {
-                const fence = close[1]
-                const fenceChar = fence[0] === '`' ? '`' : '~'
-                if (fenceChar === markerChar && fence.length >= markerLength) {
-                    insideMermaid = false
-                    markerChar = null
-                    markerLength = 0
-                    lastClosedEnd = end
-                }
-            }
-        }
-
-        index = end
-    }
-
-    if (!lastClosedEnd) return { stable: '', tail: source }
-    return {
-        stable: source.slice(0, lastClosedEnd),
-        tail: source.slice(lastClosedEnd)
-    }
-}
