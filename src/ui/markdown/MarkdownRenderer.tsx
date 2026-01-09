@@ -169,7 +169,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             const hasMermaid = list.some(
                 (child) =>
                     React.isValidElement(child) &&
-                    (child.type === MermaidDiagram || (child.props as any)?.['data-mermaid-block'])
+                    (child.type === MermaidDiagram ||
+                        (child.props.className as string).includes('language-mermaid'))
             )
             if (hasMermaid) {
                 return <div {...rest}>{children}</div>
