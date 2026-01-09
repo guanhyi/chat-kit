@@ -149,7 +149,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             const match = /language-(\w+)/.exec(className || '')
             const lang = match?.[1]
             if (lang === 'mermaid') {
-                const code = String(children ?? '').replace(/\n$/, '')
+                const raw = Array.isArray(children) ? children.join('') : String(children ?? '')
+                const code = raw.replace(/\n$/, '')
                 return <MermaidDiagram code={code} streaming={status === 'streaming'} />
             }
             return (
