@@ -19,6 +19,7 @@
     "dependencies": {
         "@ngify/http": "^2.0.4",
         "clsx": "^2.1.1",
+        "hast-util-to-jsx-runtime": "^2.3.6",
         "immer": "^10.1.1",
         "jotai": "^2.15.2",
         "katex": "^0.16.21",
@@ -30,10 +31,12 @@
         "react-markdown": "^10.1.0",
         "rehype-katex": "^7.0.1",
         "rehype-mathjax": "^7.1.0",
+        "rehype-parse": "^9.0.1",
         "rehype-raw": "^7.0.0",
         "remark-gfm": "^4.0.1",
         "remark-math": "^6.0.0",
         "rxjs": "^7.8.1",
+        "unified": "^11.0.5",
         "unist": "^0.0.1",
         "unist-util-visit": "^5.0.0",
         "virtua": "^0.48.2"

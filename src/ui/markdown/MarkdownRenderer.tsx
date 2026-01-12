@@ -14,9 +14,26 @@ import { useSmoothMarkdownStream } from './useSmoothMarkdownStream'
 import { remarkSemiStreaming } from './plugins/semi-streaming'
 import { Link, type CitationProps } from './mdx/Link'
 import { MermaidDiagram } from './mdx/Mermaid'
+import MermaidBlock from './mdx/mermaid/MermaidBlock'
+import rehypeMermaid from './mdx/mermaid/rehypeMermaid'
+import { Pluggable, PluggableList } from 'unified'
 
 export type MathEngine = 'KaTeX' | 'MathJax' | 'none'
-
+const mermaidConfig = {
+    theme: 'default',
+    flowchart: {
+        useMaxWidth: true,
+        htmlLabels: true
+    },
+    sequence: {
+        useMaxWidth: true,
+        diagramMarginX: 50,
+        diagramMarginY: 10
+    },
+    gantt: {
+        useMaxWidth: true
+    }
+}
 export interface MarkdownRendererProps {
     content: string
     status?: 'streaming' | 'success' | 'idle'
@@ -120,7 +137,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     }, [])
 
     const rehypePlugins = useMemo(() => {
-        const list: any[] = []
+        const list: Pluggable[] = [[rehypeMermaid, { mermaidConfig, ssr: false }]]
         if (allowRawSvg) list.push(rehypeRaw)
         list.push(rehypeFootnoteLinks)
         if (mathEngine === 'KaTeX') list.push(rehypeKatex)
@@ -142,24 +159,24 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         return (props: any) => <Link citations={citations} render={citationRender} {...props} />
     }, [citations, citationRender])
 
-    const Code = useMemo(() => {
-        return (props: any) => {
-            const { children, className, node, ...rest } = props
-            void node
-            const match = /language-(\w+)/.exec(className || '')
-            const lang = match?.[1]
-            if (lang === 'mermaid') {
-                const raw = Array.isArray(children) ? children.join('') : String(children ?? '')
-                const code = raw.replace(/\n$/, '')
-                return <MermaidDiagram code={code} streaming={status === 'streaming'} />
-            }
-            return (
-                <code {...rest} className={className}>
-                    {children}
-                </code>
-            )
-        }
-    }, [status])
+    // const Code = useMemo(() => {
+    //     return (props: any) => {
+    //         const { children, className, node, ...rest } = props
+    //         void node
+    //         const match = /language-(\w+)/.exec(className || '')
+    //         const lang = match?.[1]
+    //         if (lang === 'mermaid') {
+    //             const raw = Array.isArray(children) ? children.join('') : String(children ?? '')
+    //             const code = raw.replace(/\n$/, '')
+    //             return <MermaidDiagram code={code} streaming={status === 'streaming'} />
+    //         }
+    //         return (
+    //             <code {...rest} className={className}>
+    //                 {children}
+    //             </code>
+    //         )
+    //     }
+    // }, [status])
 
     const Pre = useMemo(() => {
         return (props: any) => {
@@ -170,7 +187,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                 (child) =>
                     React.isValidElement(child) &&
                     (child.type === MermaidDiagram ||
-                        (child.props.className as string).includes('language-mermaid'))
+                        (child.props.className as string)?.includes('language-mermaid'))
             )
             if (hasMermaid) {
                 return <div {...rest}>{children}</div>
@@ -180,8 +197,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     }, [])
 
     const markdownComponents = useMemo(() => {
-        return { a: A, code: Code, pre: Pre, ...(components || {}) }
-    }, [A, Code, Pre, components])
+        return { a: A, pre: Pre, MermaidBlock: MermaidBlock, ...(components || {}) }
+    }, [A, Pre, components])
 
     return (
         <div className={className}>
