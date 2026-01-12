@@ -9,7 +9,7 @@ import RenderGraph, { RenderGraphRef } from './components/RenderGraph'
 import { Segmented, SegmentedType } from './components/Segmented'
 import MermaidBlockActions from './components/actions'
 import NiceModal from '@ebay/nice-modal-react'
-
+import { CodeHighlight } from '@douyinfe/semi-ui'
 // 获取 mermaid 服务实例
 const mermaidService = MermaidService.getInstance()
 
@@ -34,7 +34,12 @@ const MermaidBlock: React.FC<MermaidProps> = (props) => {
                         </div>
                     </div>
                     <div className="m-0 overflow-auto bg-gray-50 p-3 text-xs text-neutral-100">
-                        <RenderGraph code={code} isComplete={isComplete} ref={renderGraphRef} />
+                        <div style={{ display: activeSegmented === 'mermaid' ? 'block' : 'none' }}>
+                            <RenderGraph code={code} isComplete={isComplete} ref={renderGraphRef} />
+                        </div>
+                        <div style={{ display: activeSegmented === 'code' ? 'block' : 'none' }}>
+                            <CodeHighlight language="mermaid" code={code} />
+                        </div>
                     </div>
                 </div>
             </NiceModal.Provider>

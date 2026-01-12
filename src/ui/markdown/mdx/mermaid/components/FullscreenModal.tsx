@@ -62,6 +62,7 @@ export const FullscreenModal = create(({ code }: FullscreenProps) => {
     const modal = useModal()
 
     return (
+        //@ts-ignore
         <ModalStyled
             visible={modal.visible}
             fullScreen
