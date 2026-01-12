@@ -10,9 +10,7 @@ import { Segmented, SegmentedType } from './components/Segmented'
 import MermaidBlockActions from './components/actions'
 import NiceModal from '@ebay/nice-modal-react'
 import { CodeHighlight } from '@douyinfe/semi-ui'
-// 获取 mermaid 服务实例
-const mermaidService = MermaidService.getInstance()
-
+import 'prismjs/components/prism-mermaid.js'
 const MermaidBlock: React.FC<MermaidProps> = (props) => {
     const [isFullscreen, setIsFullscreen] = useState(false)
     const { code, isComplete = false } = props
@@ -38,7 +36,15 @@ const MermaidBlock: React.FC<MermaidProps> = (props) => {
                             <RenderGraph code={code} isComplete={isComplete} ref={renderGraphRef} />
                         </div>
                         <div style={{ display: activeSegmented === 'code' ? 'block' : 'none' }}>
-                            <CodeHighlight language="mermaid" code={code} />
+                            <CodeHighlight
+                                style={{
+                                    //@ts-ignore
+                                    '--semi-color-tertiary-light-default':
+                                        'rgb(249 250 251 / var(--tw-bg-opacity, 1))'
+                                }}
+                                language="mermaid"
+                                code={code}
+                            />
                         </div>
                     </div>
                 </div>
