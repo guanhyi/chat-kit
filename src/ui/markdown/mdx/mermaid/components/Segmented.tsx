@@ -9,14 +9,17 @@ export const Segmented = (props: {
     return (
         <RadioGroup
             type="button"
-            buttonSize="large"
+            buttonSize="middle"
             defaultValue={props.value}
             value={props.value}
             onChange={(v) => {
                 props.onChange(v.target.value)
             }}
             aria-label="单选组合示例"
-            name="demo-radio-large"
+            style={{
+                //@ts-ignore
+                '--semi-border-radius-small': 'var(--radius)'
+            }}
         >
             <Radio value={'mermaid'}>流程图</Radio>
             <Radio value={'code'}>代码</Radio>
