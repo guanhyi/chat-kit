@@ -13,7 +13,8 @@ import GraphContext from '../context'
 import { downloadPng, getMermaidId, parseSvgToJsx, svgToPngAndCopy } from '../utils'
 
 const defaultConfig: MermaidConfig = {
-    startOnLoad: false
+    startOnLoad: false,
+    flowchart: { useMaxWidth: true, htmlLabels: true }
 }
 
 interface RenderGraphProps {
