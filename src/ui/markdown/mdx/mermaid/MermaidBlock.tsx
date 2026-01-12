@@ -27,7 +27,7 @@ const MermaidBlock: React.FC<MermaidProps> = (props) => {
                 <div className="not-prose my-3 overflow-hidden rounded-lg border border-neutral-200 bg-white">
                     <div className="bg-gray-100 px-[6px] py-[6px] flex">
                         <Segmented value={activeSegmented} onChange={setActiveSegmented} />
-                        {activeSegmented && (
+                        {activeSegmented === 'mermaid' && (
                             <div className="ml-auto flex items-center">
                                 <MermaidBlockActions code={code} graphRef={renderGraphRef} />
                             </div>
