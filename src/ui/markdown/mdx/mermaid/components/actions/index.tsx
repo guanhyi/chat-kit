@@ -3,6 +3,7 @@ import GraphContext from '../../context'
 import { RenderGraphRef } from '../RenderGraph'
 import { Button, Tooltip, Divider } from '@douyinfe/semi-ui'
 import { Download, ScanEye, ZoomIn, ZoomOut } from 'lucide-react'
+import { FullscreenButton } from './FullscreenButton'
 
 interface MermaidBlockActionsProps {
     graphRef: React.RefObject<RenderGraphRef>
@@ -47,28 +48,34 @@ const MermaidBlockActions: React.FC<MermaidBlockActionsProps> = ({
             <Tooltip content="放大">
                 <Button
                     onClick={zoomIn}
-                    className="rounded-full"
+                    className="rounded-full p-[6px] h-[28px] w-[28px]"
                     type="tertiary"
                     theme="borderless"
                 >
-                    <ZoomIn />
+                    <ZoomIn size={16} />
                 </Button>
             </Tooltip>
             <Tooltip content="缩小">
                 <Button
                     onClick={zoomOut}
-                    className="rounded-full"
+                    className="rounded-full p-[6px] h-[28px] w-[28px]"
                     type="tertiary"
                     theme="borderless"
                 >
-                    <ZoomOut />
+                    <ZoomOut size={16} />
                 </Button>
             </Tooltip>
             <Tooltip content="自适应">
-                <Button onClick={fit} className="rounded-full" type="tertiary" theme="borderless">
-                    <ScanEye />
+                <Button
+                    onClick={fit}
+                    className="rounded-full p-[6px] h-[28px] w-[28px]"
+                    type="tertiary"
+                    theme="borderless"
+                >
+                    <ScanEye size={16} />
                 </Button>
             </Tooltip>
+            {!isFullscreen && <FullscreenButton code={code} />}
             <Divider layout="vertical" className="mx-[12px]" />
             <Button
                 onClick={handleDownload}
@@ -76,7 +83,7 @@ const MermaidBlockActions: React.FC<MermaidBlockActionsProps> = ({
                 type="tertiary"
                 theme="borderless"
             >
-                <Download />
+                <Download size={16} />
                 下载
             </Button>
         </>
