@@ -6,6 +6,7 @@ import {
     useContext,
     useEffect,
     useImperativeHandle,
+    useMemo,
     useRef,
     useState
 } from 'react'
@@ -20,6 +21,7 @@ const defaultConfig: MermaidConfig = {
 interface RenderGraphProps {
     code: string
     isComplete?: boolean
+    noRest?: boolean
 }
 
 export interface RenderGraphRef {
@@ -31,8 +33,8 @@ export interface RenderGraphRef {
 // 获取 mermaid 服务实例
 const mermaidService = MermaidService.getInstance()
 
-const RenderGraphInner = forwardRef<RenderGraphRef, RenderGraphProps>(({ code }, ref) => {
-    const [svgElement, setSvgElement] = useState<React.ReactElement | null>(null)
+const RenderGraphInner = forwardRef<RenderGraphRef, RenderGraphProps>(({ code, noRest }, ref) => {
+    const [svgString, setSvgString] = useState<string>('')
     const [error, setError] = useState<string | null>(null)
     const mermaidConfig = defaultConfig
 
@@ -60,7 +62,7 @@ const RenderGraphInner = forwardRef<RenderGraphRef, RenderGraphProps>(({ code },
 
     useEffect(() => {
         if (!code.trim()) {
-            setSvgElement(null)
+            setSvgString('')
             return
         }
 
@@ -71,11 +73,7 @@ const RenderGraphInner = forwardRef<RenderGraphRef, RenderGraphProps>(({ code },
             try {
                 await mermaidService.parse(code)
                 const { svg } = await mermaidService.render(viewID, code)
-                const svgElement = parseSvgToJsx(svg)
-                if (!svgElement) {
-                    return
-                }
-                setSvgElement(svgElement)
+                setSvgString(svg)
                 svgIdRef.current = `#${viewID}`
             } catch (err) {
                 const errorMessage =
@@ -85,6 +83,11 @@ const RenderGraphInner = forwardRef<RenderGraphRef, RenderGraphProps>(({ code },
         }
         renderChart()
     }, [code])
+
+    const svgElement = useMemo(() => {
+        if (!svgString) return null
+        return parseSvgToJsx(svgString, { noRest })
+    }, [svgString, noRest])
 
     useImperativeHandle(ref, () => ({
         download: async () => {

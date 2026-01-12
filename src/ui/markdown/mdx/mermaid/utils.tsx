@@ -10,11 +10,35 @@ const getMermaidId = () => {
     return `mermaid-${_mermaidId++}`
 }
 
-const parseSvgToJsx = (svgString: string) => {
+type ParseSvgToJsxOptions = {
+    noRest?: boolean
+}
+
+function setSvgProp(hast: any, key: string, value: unknown): boolean {
+    if (!hast || typeof hast !== 'object') return false
+    const children = (hast as any).children
+    if (!Array.isArray(children)) return false
+
+    for (const child of children) {
+        if (child?.type === 'element' && child?.tagName === 'svg') {
+            child.properties = child.properties || {}
+            child.properties[key] = value
+            return true
+        }
+        if (setSvgProp(child, key, value)) return true
+    }
+
+    return false
+}
+
+const parseSvgToJsx = (svgString: string, options: ParseSvgToJsxOptions = {}) => {
     if (!svgString) return null
     try {
         const processor = unified().use(rehypeParse, { fragment: true, space: 'svg' })
         const hast = processor.parse(svgString)
+        if (options.noRest) {
+            setSvgProp(hast, 'noRest', true)
+        }
         const jsxElement = toJsxRuntime(hast, {
             Fragment,
             jsx,
