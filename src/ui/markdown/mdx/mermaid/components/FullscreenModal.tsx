@@ -22,13 +22,15 @@ const Content = ({ code }: { code: string }) => {
         })
     }, [])
     const listenResize = useCallback(() => {
-        console.log(contentRef.current.clientHeight)
-
         setHeight(contentRef.current.clientHeight)
     }, [])
 
     useLayoutEffect(() => {
         listenResize()
+        window.addEventListener('resize', listenResize)
+        return () => {
+            window.removeEventListener('resize', listenResize)
+        }
     }, [])
 
     return (
