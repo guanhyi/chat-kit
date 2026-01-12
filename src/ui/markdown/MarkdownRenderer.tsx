@@ -17,6 +17,7 @@ import { MermaidDiagram } from './mdx/Mermaid'
 import MermaidBlock from './mdx/mermaid/MermaidBlock'
 import rehypeMermaid from './mdx/mermaid/rehypeMermaid'
 import { Pluggable, PluggableList } from 'unified'
+import remarkMermaid from './mdx/mermaid/remarkMermaid'
 
 export type MathEngine = 'KaTeX' | 'MathJax' | 'none'
 const mermaidConfig = {
@@ -131,7 +132,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             [remarkGfm, { singleTilde: false }],
             remarkMath,
             remarkCustomFootnotes,
-            remarkSemiStreaming
+            remarkMermaid
+            // remarkSemiStreaming
         ]
         return list
     }, [])
