@@ -15,7 +15,8 @@ import { downloadPng, getMermaidId, parseSvgToJsx, svgToPngAndCopy } from '../ut
 
 const defaultConfig: MermaidConfig = {
     startOnLoad: false,
-    flowchart: { useMaxWidth: true, htmlLabels: true }
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    suppressErrorRendering: true
 }
 
 interface RenderGraphProps {
