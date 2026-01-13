@@ -18,11 +18,11 @@ const MermaidBlock: React.FC<MermaidProps> = (props) => {
     const renderGraphRef = useRef<RenderGraphRef>(null)
     const panZoomState = useMemo(() => {
         return new PanZoomState({
-            autoZoomOut: false // 禁用自动缩放，保持原始大小
+            autoZoomOut: true // 禁用自动缩放，保持原始大小
         })
     }, [])
     return (
-        <GraphProvider isComplete={isComplete} panZoomState={panZoomState} svgHeight={380}>
+        <GraphProvider isComplete={isComplete} panZoomState={panZoomState} svgHeight={500}>
             <NiceModal.Provider>
                 <div className="not-prose my-3 overflow-hidden rounded-lg border border-neutral-200 bg-white">
                     <div className="bg-gray-100 px-[6px] py-[6px] flex">
