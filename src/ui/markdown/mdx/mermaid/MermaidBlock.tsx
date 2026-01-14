@@ -18,7 +18,8 @@ const MermaidBlock: React.FC<MermaidProps> = (props) => {
     const renderGraphRef = useRef<RenderGraphRef>(null)
     const panZoomState = useMemo(() => {
         return new PanZoomState({
-            autoZoomOut: false // 禁用自动缩放，保持原始大小
+            autoZoomOut: false, // 禁用自动缩放，保持原始大小
+            mouseWheelZoomEnabled: true
         })
     }, [])
     return (
@@ -33,7 +34,7 @@ const MermaidBlock: React.FC<MermaidProps> = (props) => {
                             </div>
                         )}
                     </div>
-                    <div className="m-0 overflow-auto bg-gray-50 p-3 text-xs text-neutral-100">
+                    <div className="m-0 overflow-auto bg-gray-50 p-3 text-xs ">
                         <div style={{ display: activeSegmented === 'mermaid' ? 'block' : 'none' }}>
                             <RenderGraph code={code} isComplete={isComplete} ref={renderGraphRef} />
                         </div>
