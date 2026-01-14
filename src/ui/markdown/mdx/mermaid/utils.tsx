@@ -44,6 +44,8 @@ const parseSvgToJsx = (svgString: string, options: ParseSvgToJsxOptions = {}) =>
             jsx,
             jsxs,
             passKeys: true, // 保留所有属性
+            // mermaid 生成的 SVG 可能包含不完整/不兼容的内联 style，避免因此导致整张图渲染失败
+            ignoreInvalidStyle: true,
             components: {
                 svg: Svg
             } as Components
