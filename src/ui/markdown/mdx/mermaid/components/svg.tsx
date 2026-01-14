@@ -17,12 +17,12 @@ const Svg: React.FC<SvgProps> = (props) => {
     useEffect(() => {
         let unmounted = false
         if (isComplete) {
-            requestAnimationFrame(() => {
+            setTimeout(() => {
                 if (unmounted) return
                 const svgElement = svgRef.current
                 if (!svgElement) return
                 panZoomState.updateElement(svgElement)
-            })
+            }, 50)
         }
         return () => {
             unmounted = true

@@ -18,7 +18,7 @@ const MermaidBlock: React.FC<MermaidProps> = (props) => {
     const renderGraphRef = useRef<RenderGraphRef>(null)
     const panZoomState = useMemo(() => {
         return new PanZoomState({
-            autoZoomOut: true // 禁用自动缩放，保持原始大小
+            autoZoomOut: false // 禁用自动缩放，保持原始大小
         })
     }, [])
     return (
