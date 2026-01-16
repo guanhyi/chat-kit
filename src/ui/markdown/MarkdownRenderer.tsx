@@ -20,6 +20,15 @@ import { Pluggable, PluggableList } from 'unified'
 import remarkMermaid from './mdx/mermaid/remarkMermaid'
 import remend from 'remend'
 import clsx from 'clsx'
+import styled from 'styled-components'
+
+const Styled = styled.div`
+    & > *:last-child::after {
+        display: inline;
+        vertical-align: baseline;
+        content: var(--streamdown-caret);
+    }
+`
 
 export type MathEngine = 'KaTeX' | 'MathJax' | 'none'
 const mermaidConfig = {
@@ -207,17 +216,19 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         () =>
             status === 'streaming'
                 ? ({
-                      '--streamdown-caret': ' ▋'
+                      '--streamdown-caret': '" ●"'
                   } as CSSProperties)
                 : undefined,
         [status]
     )
     return (
-        <div
+        <Styled
             className={clsx(
-                '*:last:after:inline *:last:after:align-baseline *:last:after:content-(--streamdown-caret)',
+                'space-y-4 whitespace-normal *:first:mt-0 *:last:mb-0',
+                // '*:last:after:inline *:last:after:align-baseline *:last:after:content-[var(--streamdown-caret)]',
                 className
             )}
+            style={style}
         >
             <ReactMarkdown
                 remarkPlugins={remarkPlugins}
@@ -227,7 +238,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             >
                 {messageContent}
             </ReactMarkdown>
-        </div>
+        </Styled>
     )
 }
 
