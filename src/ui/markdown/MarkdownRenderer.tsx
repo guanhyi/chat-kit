@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -18,6 +18,8 @@ import MermaidBlock from './mdx/mermaid/MermaidBlock'
 import rehypeMermaid from './mdx/mermaid/rehypeMermaid'
 import { Pluggable, PluggableList } from 'unified'
 import remarkMermaid from './mdx/mermaid/remarkMermaid'
+import remend from 'remend'
+import clsx from 'clsx'
 
 export type MathEngine = 'KaTeX' | 'MathJax' | 'none'
 const mermaidConfig = {
@@ -147,7 +149,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         return list
     }, [mathEngine, allowRawSvg])
 
-    const renderText = status === 'streaming' ? displayed : processedContent
+    const renderText = status === 'streaming' ? remend(displayed) : processedContent
     const messageContent = useMemo(() => {
         return citations ? transformCitations(renderText, citations.length) : renderText
     }, [renderText, citations, citations?.length])
@@ -201,9 +203,22 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     const markdownComponents = useMemo(() => {
         return { a: A, pre: Pre, MermaidBlock: MermaidBlock, ...(components || {}) }
     }, [A, Pre, components])
-
+    const style = useMemo(
+        () =>
+            status === 'streaming'
+                ? ({
+                      '--streamdown-caret': ' ▋'
+                  } as CSSProperties)
+                : undefined,
+        [status]
+    )
     return (
-        <div className={className}>
+        <div
+            className={clsx(
+                '*:last:after:inline *:last:after:align-baseline *:last:after:content-(--streamdown-caret)',
+                className
+            )}
+        >
             <ReactMarkdown
                 remarkPlugins={remarkPlugins}
                 rehypePlugins={rehypePlugins}
