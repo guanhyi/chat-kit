@@ -20,13 +20,52 @@ import { Pluggable, PluggableList } from 'unified'
 import remarkMermaid from './mdx/mermaid/remarkMermaid'
 import remend from 'remend'
 import clsx from 'clsx'
-import styled from 'styled-components'
+import styled, { keyframes } from 'styled-components'
+
+const streamdownCaretBlink = keyframes`
+    0%, 49% {
+        opacity: 1;
+    }
+    50%, 100% {
+        opacity: 0;
+    }
+`
 
 const Styled = styled.div`
-    & > *:last-child::after {
-        display: inline;
+    /* 默认：把光标挂在“最后一个块级节点”的末尾 */
+    & > *:last-child:not(ul):not(ol)::after {
+        display: inline-block;
         vertical-align: baseline;
         content: var(--streamdown-caret);
+        animation: ${streamdownCaretBlink} 1s step-end infinite;
+        pointer-events: none;
+    }
+
+    /*
+     * 例外：如果最后一个节点是列表（ul/ol），光标挂在 ul/ol 的 ::after 会变成“列表后另起一行”。
+     * 因为 ul/ol 的子节点 li 是块级，ul::after 会作为 ul 的最后一个子节点单独排版。
+     * 所以这里把光标移到最后一个 li 上，才能跟最后一条内容同一行。
+     */
+    & > :last-child:is(ul, ol)::after {
+        content: none;
+    }
+
+    & > :last-child:is(ul, ol) > li:last-child::after {
+        display: inline-block;
+        vertical-align: baseline;
+        content: var(--streamdown-caret);
+        animation: ${streamdownCaretBlink} 1s step-end infinite;
+        pointer-events: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        & > *:last-child:not(ul):not(ol)::after {
+            animation: none;
+        }
+
+        & > :last-child:is(ul, ol) > li:last-child::after {
+            animation: none;
+        }
     }
 `
 
