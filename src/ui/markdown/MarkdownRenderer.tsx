@@ -253,7 +253,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     }, [])
 
     const markdownComponents = useMemo(() => {
-        return { a: A, pre: Pre, MermaidBlock: MermaidBlock, ...(components || {}) }
+        return { a: A, MermaidBlock: MermaidBlock, ...(components || {}) }
     }, [A, Pre, components])
     const style = useMemo(
         () =>
