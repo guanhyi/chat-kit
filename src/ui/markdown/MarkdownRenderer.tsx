@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import rehypeMathjax from 'rehype-mathjax'
+
 import rehypeRaw from 'rehype-raw'
 import 'katex/dist/katex.min.css'
 import 'katex/dist/contrib/mhchem'
@@ -21,6 +22,7 @@ import remarkMermaid from './mdx/mermaid/remarkMermaid'
 import remend from 'remend'
 import clsx from 'clsx'
 import styled, { keyframes } from 'styled-components'
+import { cjk } from './plugins/cjk'
 
 const streamdownCaretBlink = keyframes`
     0%, 49% {
@@ -179,7 +181,9 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
     const remarkPlugins = useMemo(() => {
         const list: any[] = [
+            ...cjk.remarkPluginsBefore,
             [remarkGfm, { singleTilde: false }],
+            ...cjk.remarkPluginsAfter,
             remarkMath,
             remarkCustomFootnotes,
             remarkMermaid
