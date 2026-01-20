@@ -57,6 +57,23 @@ const parseSvgToJsx = (svgString: string, options: ParseSvgToJsxOptions = {}) =>
     }
 }
 
+function buildExportSvgString(svgElement: SVGElement, width: number, height: number) {
+    const cloned = svgElement.cloneNode(true) as SVGSVGElement
+    // 清理 svg-pan-zoom 运行时的 transform，避免导出时只截取当前视口
+    const viewport = cloned.querySelector('g.svg-pan-zoom_viewport') as SVGGElement | null
+    if (viewport) {
+        viewport.removeAttribute('transform')
+    }
+
+    // 导出时强制像素尺寸，避免 width="100%" 等导致导出尺寸异常（如 300x150）
+    cloned.setAttribute('width', String(width))
+    cloned.setAttribute('height', String(height))
+    if (!cloned.getAttribute('xmlns')) {
+        cloned.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    }
+
+    return new XMLSerializer().serializeToString(cloned)
+}
 function svgToPng(
     svgElement: SVGElement,
     width: number,
@@ -75,12 +92,16 @@ function svgToPng(
     }
 
     // 将SVG转换为数据URL
-    const svgData = new XMLSerializer().serializeToString(svgElement)
+    const svgData = buildExportSvgString(svgElement, width, height)
     const img = new Image()
 
     img.onload = function () {
+        // 默认白底（避免透明底在部分场景显示成黑底/棋盘格）
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, width, height)
+
         // 在Canvas上绘制图像
-        ctx.drawImage(img, 0, 0)
+        ctx.drawImage(img, 0, 0, width, height)
 
         // 将Canvas转换为PNG数据URL
         const pngData = canvas.toDataURL('image/png')
@@ -132,7 +153,7 @@ async function svgToPngAndCopy(data: { id: string; width: number; height: number
         }
 
         // 2. 将SVG序列化为字符串
-        const svgData = new XMLSerializer().serializeToString(svgElement)
+        const svgData = buildExportSvgString(svgElement, width, height)
         const img = new Image()
 
         // 3. 等待图片加载
@@ -142,8 +163,12 @@ async function svgToPngAndCopy(data: { id: string; width: number; height: number
             img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)))
         })
 
+        // 4. 默认白底
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, width, height)
+
         // 4. 在Canvas上绘制图像
-        ctx.drawImage(img, 0, 0)
+        ctx.drawImage(img, 0, 0, width, height)
 
         // 5. 将Canvas转换为Blob
         const pngBlob = await new Promise((resolve) => {

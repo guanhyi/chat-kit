@@ -39,7 +39,7 @@ const RenderGraphInner = forwardRef<RenderGraphRef, RenderGraphProps>(({ code, n
     const [error, setError] = useState<string | null>(null)
     const mermaidConfig = defaultConfig
 
-    const { svgHeight, panZoomState } = useContext(GraphContext)
+    const { svgHeight } = useContext(GraphContext)
     const svgIdRef = useRef('')
     const mermaidConfigRef = useRef(mermaidConfig)
     mermaidConfigRef.current = mermaidConfig
@@ -90,21 +90,43 @@ const RenderGraphInner = forwardRef<RenderGraphRef, RenderGraphProps>(({ code, n
         return parseSvgToJsx(svgString, { noRest })
     }, [svgString, noRest])
 
+    const getExportSize = () => {
+        const svg = document.querySelector(svgIdRef.current) as SVGSVGElement | null
+        if (!svg) return null
+
+        // 以 mermaid 的 viewBox 尺寸为准（即图的“内容尺寸”），避免受 pan/zoom 视口大小影响
+        const baseWidth = svg.viewBox?.baseVal?.width || 0
+        const baseHeight = svg.viewBox?.baseVal?.height || 0
+        if (baseWidth > 0 && baseHeight > 0) {
+            const scale = Math.max(1, 1920 / Math.max(baseWidth, baseHeight))
+            return {
+                width: Math.max(1, Math.round(baseWidth * scale)),
+                height: Math.max(1, Math.round(baseHeight * scale))
+            }
+        }
+
+        const rect = svg.getBoundingClientRect()
+        return {
+            width: Math.max(1, Math.round(rect.width)),
+            height: Math.max(1, Math.round(rect.height))
+        }
+    }
+
     useImperativeHandle(ref, () => ({
         download: async () => {
-            const sizes = panZoomState.getSizes()
+            const size = getExportSize()
+            if (!size) return false
             return downloadPng({
                 id: svgIdRef.current,
-                width: sizes?.width || 0,
-                height: sizes?.height || 0
+                ...size
             })
         },
         copy: async () => {
-            const sizes = panZoomState.getSizes()
+            const size = getExportSize()
+            if (!size) return false
             return svgToPngAndCopy({
                 id: svgIdRef.current,
-                width: sizes?.width || 0,
-                height: sizes?.height || 0
+                ...size
             })
         },
         getSvg: () => {
