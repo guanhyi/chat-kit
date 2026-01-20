@@ -6,6 +6,8 @@ import { invariant } from './utils'
 import { renderMermaidToPng } from './mermaid'
 
 export type { DocxOptions }
+// 图片解析器类型
+export type ImageResolver = (imagePath: string) => Promise<ImageData>
 
 const plugin: Plugin<[DocxOptions?]> = function (opts = {}) {
     let images: ImageDataMap = {}

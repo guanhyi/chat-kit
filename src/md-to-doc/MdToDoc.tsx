@@ -16,6 +16,7 @@ type MdToDocProps = {
     fileName: string
     afterFileName?: string
     size?: number
+    docxOptions?: DocxOptions
 } & React.HTMLAttributes<HTMLDivElement>
 
 export const MdToDoc = (props: MdToDocProps) => {
@@ -26,7 +27,8 @@ export const MdToDoc = (props: MdToDocProps) => {
         .use(remarkFrontmatter)
         .use(docx, {
             output: 'blob',
-            styles: GMDocumentStandard
+            styles: GMDocumentStandard,
+            ...props.docxOptions
             // numbering: {
             //   config: [
             //     {
