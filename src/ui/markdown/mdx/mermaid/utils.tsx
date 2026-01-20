@@ -57,103 +57,212 @@ const parseSvgToJsx = (svgString: string, options: ParseSvgToJsxOptions = {}) =>
     }
 }
 
-function svgToPng(
+function parseSvgLength(value: string | null): number | null {
+    if (!value) return null
+    const v = value.trim()
+    if (!v || v.endsWith('%')) return null
+    const n = parseFloat(v)
+    if (!Number.isFinite(n) || n <= 0) return null
+    return n
+}
+
+function parseViewBoxSize(viewBox: string | null): { width: number; height: number } | null {
+    if (!viewBox) return null
+    const parts = viewBox
+        .trim()
+        .split(/[\s,]+/)
+        .map((p) => parseFloat(p))
+    if (parts.length !== 4) return null
+    const width = parts[2]
+    const height = parts[3]
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
+    return { width, height }
+}
+
+function getSvgSize(svg: SVGSVGElement): { width: number; height: number } | null {
+    const vb = parseViewBoxSize(svg.getAttribute('viewBox'))
+    if (vb) return vb
+    const width = parseSvgLength(svg.getAttribute('width'))
+    const height = parseSvgLength(svg.getAttribute('height'))
+    if (width && height) return { width, height }
+    return null
+}
+
+function calcExportScale(
+    base: { width: number; height: number },
+    options?: { targetMaxSidePx?: number; maxCanvasSidePx?: number; maxTotalPixels?: number }
+) {
+    const targetMaxSidePx = options?.targetMaxSidePx ?? 3000
+    const maxCanvasSidePx = options?.maxCanvasSidePx ?? 8192
+    const maxTotalPixels = options?.maxTotalPixels ?? 20_000_000
+
+    const baseMaxSide = Math.max(base.width, base.height)
+    let scale = 1
+
+    // 小图：按 mermaid 的真实尺寸（viewBox）放大到接近目标边长，保证“高清”
+    if (baseMaxSide > 0 && baseMaxSide < targetMaxSidePx) {
+        scale = targetMaxSidePx / baseMaxSide
+    }
+
+    // 大图：为了避免 Canvas 尺寸过大导致失败，需要在必要时允许缩小
+    if (baseMaxSide * scale > maxCanvasSidePx) {
+        scale = maxCanvasSidePx / baseMaxSide
+    }
+
+    const totalPixels = base.width * base.height * scale * scale
+    if (Number.isFinite(totalPixels) && totalPixels > maxTotalPixels) {
+        const areaScale = Math.sqrt(maxTotalPixels / (base.width * base.height))
+        scale = Math.min(scale, areaScale)
+    }
+
+    if (!Number.isFinite(scale) || scale <= 0) return 1
+    return scale
+}
+
+async function svgStringToPngBlob(options: {
+    svgString: string
+    backgroundColor?: string
+    targetMaxSidePx?: number
+    maxCanvasSidePx?: number
+    maxTotalPixels?: number
+}): Promise<{ blob: Blob; width: number; height: number } | null> {
+    const { svgString, backgroundColor = '#ffffff' } = options
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(svgString, 'image/svg+xml')
+    const svg = doc.querySelector('svg') as SVGSVGElement | null
+    if (!svg) return null
+
+    const size = getSvgSize(svg)
+    if (!size) return null
+
+    const scale = calcExportScale(size, options)
+    const outWidth = Math.max(1, Math.round(size.width * scale))
+    const outHeight = Math.max(1, Math.round(size.height * scale))
+
+    // 导出时强制写死像素尺寸，避免受页面里 width="100%" / height={svgHeight} 等影响
+    if (!svg.getAttribute('xmlns')) {
+        svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    }
+    svg.setAttribute('width', String(outWidth))
+    svg.setAttribute('height', String(outHeight))
+
+    const svgData = new XMLSerializer().serializeToString(svg)
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
+    const url = URL.createObjectURL(svgBlob)
+
+    try {
+        const img = new Image()
+        await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve()
+            img.onerror = () => reject(new Error('Failed to load SVG image'))
+            img.src = url
+        })
+
+        const canvas = document.createElement('canvas')
+        canvas.width = outWidth
+        canvas.height = outHeight
+        const ctx = canvas.getContext('2d')
+        if (!ctx) throw new Error('Failed to get canvas context')
+
+        // 默认白底（避免透明背景在一些场景看起来像“黑底/棋盘格”）
+        ctx.fillStyle = backgroundColor
+        ctx.fillRect(0, 0, outWidth, outHeight)
+
+        ctx.imageSmoothingEnabled = true
+        ;(ctx as any).imageSmoothingQuality = 'high'
+
+        ctx.drawImage(img, 0, 0, outWidth, outHeight)
+
+        const pngBlob = await new Promise<Blob | null>((resolve) => {
+            canvas.toBlob(resolve, 'image/png')
+        })
+        if (!pngBlob) return null
+
+        return { blob: pngBlob, width: outWidth, height: outHeight }
+    } finally {
+        URL.revokeObjectURL(url)
+    }
+}
+
+export function svgToPng(
     svgElement: SVGElement,
     width: number,
     height: number,
     callback: (pngData: string) => void
 ): void {
-    // 创建一个Canvas元素
     const canvas = document.createElement('canvas')
     canvas.width = width
     canvas.height = height
     const ctx = canvas.getContext('2d')
-
-    // 检查ctx是否为null
     if (!ctx) {
         throw new Error('Failed to get canvas context')
     }
 
-    // 将SVG转换为数据URL
     const svgData = new XMLSerializer().serializeToString(svgElement)
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
+    const url = URL.createObjectURL(svgBlob)
     const img = new Image()
 
     img.onload = function () {
-        // 在Canvas上绘制图像
-        ctx.drawImage(img, 0, 0)
-
-        // 将Canvas转换为PNG数据URL
-        const pngData = canvas.toDataURL('image/png')
-
-        // 执行回调函数
-        callback(pngData)
+        try {
+            ctx.drawImage(img, 0, 0, width, height)
+            const pngData = canvas.toDataURL('image/png')
+            callback(pngData)
+        } finally {
+            URL.revokeObjectURL(url)
+        }
     }
-
-    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)))
+    img.onerror = function () {
+        URL.revokeObjectURL(url)
+        throw new Error('Failed to load SVG image')
+    }
+    img.src = url
 }
 
-const downloadPng = async (data: { id: string; width: number; height: number }) => {
-    const { id, width, height } = data
-    const svgElement = document.querySelector(id) as SVGElement
-    if (!svgElement) {
-        return false
-    }
-    return new Promise((resolve: (value: boolean) => void) => {
-        svgToPng(svgElement, width, height, function (pngData) {
-            // 创建一个新的图片元素显示PNG
-            const img = new Image()
-            img.src = pngData
+const downloadPng = async (data: {
+    svgString: string
+    fileName?: string
+    backgroundColor?: string
+    targetMaxSidePx?: number
+    maxCanvasSidePx?: number
+    maxTotalPixels?: number
+}) => {
+    const { svgString, fileName = 'image.png' } = data
+    const res = await svgStringToPngBlob(data)
+    if (!res) return false
 
-            // 或者下载PNG
-            const link = document.createElement('a')
-            link.download = 'image.png'
-            link.href = pngData
-            link.click()
-            resolve(true)
-        })
-    })
+    const url = URL.createObjectURL(res.blob)
+    const link = document.createElement('a')
+    link.download = fileName
+    link.href = url
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 0)
+    return true
 }
 
-async function svgToPngAndCopy(data: { id: string; width: number; height: number }) {
-    const { id, width, height } = data
-    const svgElement = document.querySelector(id) as SVGElement
-    if (!svgElement) {
-        return false
-    }
+async function svgToPngAndCopy(data: {
+    svgString: string
+    backgroundColor?: string
+    targetMaxSidePx?: number
+    maxCanvasSidePx?: number
+    maxTotalPixels?: number
+}) {
     try {
-        // 1. 创建Canvas并设置尺寸
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
+        const res = await svgStringToPngBlob(data)
+        if (!res) return false
 
-        if (!ctx) {
-            throw new Error('Failed to get canvas context')
+        if (!navigator.clipboard?.write) {
+            console.error('copy failed: navigator.clipboard.write is not available')
+            return false
+        }
+        if (typeof ClipboardItem === 'undefined') {
+            console.error('copy failed: ClipboardItem is not available')
+            return false
         }
 
-        // 2. 将SVG序列化为字符串
-        const svgData = new XMLSerializer().serializeToString(svgElement)
-        const img = new Image()
-
-        // 3. 等待图片加载
-        await new Promise((resolve, reject) => {
-            img.onload = resolve
-            img.onerror = reject
-            img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)))
-        })
-
-        // 4. 在Canvas上绘制图像
-        ctx.drawImage(img, 0, 0)
-
-        // 5. 将Canvas转换为Blob
-        const pngBlob = await new Promise((resolve) => {
-            canvas.toBlob(resolve, 'image/png')
-        })
-
-        // 6. 复制到剪贴板
         await navigator.clipboard.write([
             new ClipboardItem({
-                'image/png': pngBlob as Blob
+                'image/png': res.blob
             })
         ])
         return true
