@@ -22,7 +22,6 @@ import {
   WidthType,
 } from "docx";
 import type { IBaseParagraphStyleOptions, IPropertiesOptions } from "docx";
-import type { MermaidConfig } from "mermaid";
 import type * as mdast from "./models/mdast";
 import { parseLatex } from "./latex";
 import { invariant, unreachable } from "./utils";
@@ -104,15 +103,6 @@ export type ImageData = {
 
 export type ImageResolver = (url: string) => Promise<ImageData> | ImageData;
 
-export type MermaidDataMap = { [code: string]: MermaidData };
-
-export type MermaidData = {
-  svg: string;
-  png: IImageOptions["data"];
-  width: number;
-  height: number;
-};
-
 type Decoration = Readonly<{
   [key in (mdast.Emphasis | mdast.Strong | mdast.Delete)["type"]]?: true;
 }>;
@@ -126,7 +116,6 @@ type ListInfo = Readonly<{
 type Context = Readonly<{
   deco: Decoration;
   images: ImageDataMap;
-  mermaids: MermaidDataMap;
   indent: number;
   list?: ListInfo;
 }>;
@@ -153,29 +142,6 @@ export interface DocxOptions
    * **You must set** if your markdown includes images. See example for [browser](https://github.com/inokawa/remark-docx/blob/main/stories/playground.stories.tsx) and [Node.js](https://github.com/inokawa/remark-docx/blob/main/src/index.spec.ts).
    */
   imageResolver?: ImageResolver;
-
-  /**
-   * Mermaid 导出配置（仅对 `code.lang=mermaid` 生效）。
-   */
-  mermaid?: {
-    enabled?: boolean;
-    /**
-     * 最大宽度（px），超过会等比缩放。
-     */
-    maxWidth?: number;
-    /**
-     * PNG fallback 渲染倍率（提高清晰度）。
-     */
-    scale?: number;
-    /**
-     * PNG fallback 背景色（避免透明背景在 Word 中显示异常）。
-     */
-    backgroundColor?: string;
-    /**
-     * 透传给 `mermaid.initialize` 的配置。
-     */
-    config?: MermaidConfig;
-  };
 
   // bodyStyles?: IBaseParagraphStyleOptions;
 }
@@ -208,13 +174,11 @@ export const mdastToDocx = async (
     background,
     numbering,
   }: DocxOptions,
-  images: ImageDataMap,
-  mermaids: MermaidDataMap = {}
+  images: ImageDataMap
 ): Promise<any> => {
   const { nodes, footnotes } = convertNodes(node.children, {
     deco: {},
     images,
-    mermaids,
     indent: 0,
   });
   const doc = new Document({
@@ -527,39 +491,43 @@ const buildHtml = ({ value }: mdast.HTML) => {
   });
 };
 
-const normalizeMermaidCode = (code: string) => {
-  return code.replace(/\r\n/g, "\n").trim();
-};
-
-const buildCode = (
-  { value, lang, meta: _meta }: mdast.Code,
-  ctx: Context
-) => {
-  if (lang?.toLowerCase() === "mermaid") {
-    const mermaidData = ctx.mermaids[normalizeMermaidCode(value)];
-    if (mermaidData) {
+const buildCode = (node: mdast.Code, ctx: Context) => {
+  const indentLevel = ctx.indent + (ctx.list ? ctx.list.level + 1 : 0);
+  // mermaid 代码块：在 plugin 里已经预渲染成 PNG 并挂到 node.data 上，这里直接写入 docx
+  if (node.lang === "mermaid") {
+    const mermaid = (node as any).data?.docxMermaid as ImageData | undefined;
+    if (mermaid) {
       return new Paragraph({
         alignment: AlignmentType.CENTER,
+        indent:
+          indentLevel > 0
+            ? {
+                start: convertInchesToTwip(INDENT * indentLevel),
+              }
+            : undefined,
         children: [
           new ImageRun({
-            type: "svg",
-            data: mermaidData.svg,
+            type: "png",
+            data: mermaid.image,
             transformation: {
-              width: mermaidData.width,
-              height: mermaidData.height,
-            },
-            fallback: {
-              type: "png",
-              data: mermaidData.png,
+              width: mermaid.width,
+              height: mermaid.height,
             },
           }),
         ],
       });
     }
   }
-  // FIXME: transform to text for now
+
+  // 其他代码块：暂时按纯文本导出
   return new Paragraph({
-    children: [buildText(value, {})],
+    children: [buildText(node.value, {})],
+    indent:
+      indentLevel > 0
+        ? {
+            start: convertInchesToTwip(INDENT * indentLevel),
+          }
+        : undefined,
   });
 };
 
