@@ -28,6 +28,11 @@ import { invariant, unreachable } from "./utils";
 
 export const ORDERED_LIST_REF = "ordered";
 const INDENT = 0.5;
+// docx.js 的 ImageRun width/height 按 96DPI 的“像素”换算为英寸（1in = 96px）
+const PX_PER_INCH = 96;
+// 为了避免图片超出页面导致在 Word 中被裁切，这里用一个偏保守的“正文可用宽高”上限（A4+常见页边距下基本都能放下）
+const DOCX_MAX_CONTENT_WIDTH_PX = 560;
+const DOCX_MAX_CONTENT_HEIGHT_PX = 820;
 const BODY_STYLE_ID = "HZ_SSSSS_body";
 const DEFAULT_NUMBERINGS: ILevelsOptions[] = [
   {
@@ -497,6 +502,22 @@ const buildCode = (node: mdast.Code, ctx: Context) => {
   if (node.lang === "mermaid") {
     const mermaid = (node as any).data?.docxMermaid as ImageData | undefined;
     if (mermaid) {
+      // 依据段落缩进做一次安全缩放，避免图片超出页面后“看起来被截断”，需要用户手动拖拽调整大小
+      const indentPx = indentLevel * INDENT * PX_PER_INCH;
+      const maxWidthPx = globalThis.Math.max(
+        1,
+        DOCX_MAX_CONTENT_WIDTH_PX - indentPx
+      );
+      const maxHeightPx = DOCX_MAX_CONTENT_HEIGHT_PX;
+      const safeScale = globalThis.Math.min(
+        1,
+        maxWidthPx / mermaid.width,
+        maxHeightPx / mermaid.height
+      );
+
+      const width = mermaid.width * safeScale;
+      const height = mermaid.height * safeScale;
+
       return new Paragraph({
         alignment: AlignmentType.CENTER,
         indent:
@@ -510,8 +531,8 @@ const buildCode = (node: mdast.Code, ctx: Context) => {
             type: "png",
             data: mermaid.image,
             transformation: {
-              width: mermaid.width,
-              height: mermaid.height,
+              width,
+              height,
             },
           }),
         ],

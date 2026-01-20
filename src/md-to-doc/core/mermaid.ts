@@ -7,10 +7,6 @@ let _mermaidId = 0;
 
 type MermaidToPngOptions = Readonly<{
   /**
-   * docx 中显示的最大宽度（px）。注意：docx 的 px 会被当作 96DPI 的像素来换算为英寸。
-   */
-  maxWidthPx?: number;
-  /**
    * 导出 PNG 的倍率（提高倍率可以更清晰，但也会更大、更耗内存）。
    */
   rasterScale?: number;
@@ -93,7 +89,9 @@ function measureSvgContentBox(svg: SVGSVGElement): Rect {
   document.body.appendChild(wrapper);
   wrapper.appendChild(svg);
   try {
-    const target = (svg.querySelector("g") as SVGGElement | null) ?? svg;
+    // 优先取 svg-pan-zoom 的 viewport（如果存在）；否则取 svg 根节点，让 bbox 尽量覆盖所有内容。
+    const target =
+      (svg.querySelector("g.svg-pan-zoom_viewport") as SVGGElement | null) ?? svg;
     const bbox = target.getBBox();
     const rect = { x: bbox.x, y: bbox.y, width: bbox.width, height: bbox.height };
     if (
@@ -115,14 +113,12 @@ function measureSvgContentBox(svg: SVGSVGElement): Rect {
 function calcExportSize(
   contentWidth: number,
   contentHeight: number,
-  opts: Required<Pick<MermaidToPngOptions, "maxWidthPx" | "rasterScale" | "maxRasterLongSidePx">>
+  opts: Required<Pick<MermaidToPngOptions, "rasterScale" | "maxRasterLongSidePx">>
 ) {
-  const scaleToFit = contentWidth > opts.maxWidthPx ? opts.maxWidthPx / contentWidth : 1;
-  const displayWidth = Math.max(1, Math.round(contentWidth * scaleToFit));
-  const displayHeight = Math.max(1, Math.round(contentHeight * scaleToFit));
-
-  let rasterWidth = Math.max(1, Math.round(displayWidth * opts.rasterScale));
-  let rasterHeight = Math.max(1, Math.round(displayHeight * opts.rasterScale));
+  // docx 中的最终展示尺寸由 transformer 再做一次“按页宽/缩进”缩放；
+  // 这里仅决定导出 PNG 的像素尺寸，保证清晰度且避免 Canvas 过大。
+  let rasterWidth = Math.max(1, Math.round(contentWidth * opts.rasterScale));
+  let rasterHeight = Math.max(1, Math.round(contentHeight * opts.rasterScale));
 
   const longSide = Math.max(rasterWidth, rasterHeight);
   if (longSide > opts.maxRasterLongSidePx) {
@@ -131,7 +127,7 @@ function calcExportSize(
     rasterHeight = Math.max(1, Math.round(rasterHeight * s));
   }
 
-  return { displayWidth, displayHeight, rasterWidth, rasterHeight };
+  return { rasterWidth, rasterHeight };
 }
 
 async function svgToPngArrayBuffer(
@@ -184,10 +180,10 @@ export async function renderMermaidToPng(
   }
 
   const opts = {
-    maxWidthPx: options.maxWidthPx ?? 600,
     rasterScale: options.rasterScale ?? 2,
     backgroundColor: options.backgroundColor ?? "#ffffff",
-    padding: options.padding ?? 16,
+    // mermaid 的 marker/filter/stroke 往往会超出 bbox，padding 稍大一点更不容易被裁切
+    padding: options.padding ?? 32,
     maxRasterLongSidePx: options.maxRasterLongSidePx ?? 2400,
   } as const;
 
@@ -211,19 +207,19 @@ export async function renderMermaidToPng(
   svgRoot.style.height = "";
   svgRoot.style.maxWidth = "";
 
-  const bbox = measureSvgContentBox(svgRoot);
-  const x = bbox.x - opts.padding;
-  const y = bbox.y - opts.padding;
-  const width = bbox.width + opts.padding * 2;
-  const height = bbox.height + opts.padding * 2;
+  // 优先信任 mermaid 生成的 viewBox（更接近“完整内容”），没有的话再用 bbox 兜底
+  const baseBox = parseViewBox(svgRoot) ?? measureSvgContentBox(svgRoot);
+  const x = baseBox.x - opts.padding;
+  const y = baseBox.y - opts.padding;
+  const width = baseBox.width + opts.padding * 2;
+  const height = baseBox.height + opts.padding * 2;
 
   svgRoot.setAttribute("viewBox", `${x} ${y} ${width} ${height}`);
   svgRoot.setAttribute("preserveAspectRatio", "xMidYMid meet");
 
-  const { displayWidth, displayHeight, rasterWidth, rasterHeight } =
-    calcExportSize(width, height, opts);
+  const { rasterWidth, rasterHeight } = calcExportSize(width, height, opts);
 
-  // 这里设置的是 PNG 的像素尺寸；docx 里显示尺寸使用 displayWidth/displayHeight
+  // 这里设置的是 PNG 的像素尺寸；docx 里最终显示尺寸会在 transformer 里按页宽/缩进再缩放
   svgRoot.setAttribute("width", String(rasterWidth));
   svgRoot.setAttribute("height", String(rasterHeight));
 
@@ -236,7 +232,8 @@ export async function renderMermaidToPng(
 
   return {
     image: pngArrayBuffer,
-    width: displayWidth,
-    height: displayHeight,
+    // 先按“内容本身”返回，最终在 transformer 里按页宽/缩进再缩放，避免在 Word 里出现超页被裁切
+    width,
+    height,
   };
 }
