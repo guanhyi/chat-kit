@@ -14,6 +14,7 @@ import { Tooltip } from '@douyinfe/semi-ui'
 type MdToDocProps = {
     content: any
     fileName: string
+    afterFileName?: string
     size?: number
 } & React.HTMLAttributes<HTMLDivElement>
 
@@ -40,7 +41,7 @@ export const MdToDoc = (props: MdToDocProps) => {
         const buffer = await doc.result
 
         /**清洗fileName前15个字去除空格,并且加上-知行 */
-        const newFileName = props.fileName.trim().slice(0, 15) + '-知行.docx'
+        const newFileName = props.fileName.trim().slice(0, 15) + props.afterFileName + '.docx'
         if (props.onClick) {
             //@ts-ignore
             props.onClick()
