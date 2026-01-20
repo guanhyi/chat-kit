@@ -39,7 +39,7 @@ const RenderGraphInner = forwardRef<RenderGraphRef, RenderGraphProps>(({ code, n
     const [error, setError] = useState<string | null>(null)
     const mermaidConfig = defaultConfig
 
-    const { svgHeight } = useContext(GraphContext)
+    const { svgHeight, panZoomState } = useContext(GraphContext)
     const svgIdRef = useRef('')
     const mermaidConfigRef = useRef(mermaidConfig)
     mermaidConfigRef.current = mermaidConfig
@@ -92,13 +92,19 @@ const RenderGraphInner = forwardRef<RenderGraphRef, RenderGraphProps>(({ code, n
 
     useImperativeHandle(ref, () => ({
         download: async () => {
+            const sizes = panZoomState.getSizes()
             return downloadPng({
-                svgString
+                id: svgIdRef.current,
+                width: sizes?.width || 0,
+                height: sizes?.height || 0
             })
         },
         copy: async () => {
+            const sizes = panZoomState.getSizes()
             return svgToPngAndCopy({
-                svgString
+                id: svgIdRef.current,
+                width: sizes?.width || 0,
+                height: sizes?.height || 0
             })
         },
         getSvg: () => {
