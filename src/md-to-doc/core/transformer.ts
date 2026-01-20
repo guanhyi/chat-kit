@@ -108,6 +108,33 @@ export type ImageData = {
 
 export type ImageResolver = (url: string) => Promise<ImageData> | ImageData;
 
+export type MermaidExportOptions = Readonly<{
+  /**
+   * mermaid 图片在 Word 中显示的最大宽度（px）。最终会按图片原始宽高等比缩放。
+   */
+  maxWidthPx?: number;
+  /**
+   * mermaid 图片在 Word 中显示的最大高度（px）。最终会按图片原始宽高等比缩放。
+   */
+  maxHeightPx?: number;
+  /**
+   * 导出 PNG 的倍率（提高倍率更清晰，但也会更大）。
+   */
+  rasterScale?: number;
+  /**
+   * PNG 背景色（默认白色）。
+   */
+  backgroundColor?: string;
+  /**
+   * 内容留白（px），避免 stroke/阴影被裁切。
+   */
+  padding?: number;
+  /**
+   * 限制导出 PNG 的最长边（px），避免 Canvas 过大导致崩溃。
+   */
+  maxRasterLongSidePx?: number;
+}>;
+
 type Decoration = Readonly<{
   [key in (mdast.Emphasis | mdast.Strong | mdast.Delete)["type"]]?: true;
 }>;
@@ -123,6 +150,7 @@ type Context = Readonly<{
   images: ImageDataMap;
   indent: number;
   list?: ListInfo;
+  mermaid?: MermaidExportOptions;
 }>;
 
 export interface DocxOptions
@@ -147,6 +175,11 @@ export interface DocxOptions
    * **You must set** if your markdown includes images. See example for [browser](https://github.com/inokawa/remark-docx/blob/main/stories/playground.stories.tsx) and [Node.js](https://github.com/inokawa/remark-docx/blob/main/src/index.spec.ts).
    */
   imageResolver?: ImageResolver;
+
+  /**
+   * mermaid 导出配置（代码块 lang=mermaid 时生效）
+   */
+  mermaid?: MermaidExportOptions;
 
   // bodyStyles?: IBaseParagraphStyleOptions;
 }
@@ -178,6 +211,7 @@ export const mdastToDocx = async (
     styles,
     background,
     numbering,
+    mermaid,
   }: DocxOptions,
   images: ImageDataMap
 ): Promise<any> => {
@@ -185,6 +219,7 @@ export const mdastToDocx = async (
     deco: {},
     images,
     indent: 0,
+    mermaid,
   });
   const doc = new Document({
     title,
@@ -504,11 +539,16 @@ const buildCode = (node: mdast.Code, ctx: Context) => {
     if (mermaid) {
       // 依据段落缩进做一次安全缩放，避免图片超出页面后“看起来被截断”，需要用户手动拖拽调整大小
       const indentPx = indentLevel * INDENT * PX_PER_INCH;
+      const configMaxWidthPx =
+        ctx.mermaid?.maxWidthPx ?? DOCX_MAX_CONTENT_WIDTH_PX;
+      const configMaxHeightPx =
+        ctx.mermaid?.maxHeightPx ?? DOCX_MAX_CONTENT_HEIGHT_PX;
+
       const maxWidthPx = globalThis.Math.max(
         1,
-        DOCX_MAX_CONTENT_WIDTH_PX - indentPx
+        configMaxWidthPx - indentPx
       );
-      const maxHeightPx = DOCX_MAX_CONTENT_HEIGHT_PX;
+      const maxHeightPx = configMaxHeightPx;
       const safeScale = globalThis.Math.min(
         1,
         maxWidthPx / mermaid.width,
@@ -520,6 +560,8 @@ const buildCode = (node: mdast.Code, ctx: Context) => {
 
       return new Paragraph({
         alignment: AlignmentType.CENTER,
+        // 图表段落尽量不要额外“段前/段后”，否则很容易把图片顶出页面可视区域
+        spacing: { before: 0, after: 0 },
         indent:
           indentLevel > 0
             ? {

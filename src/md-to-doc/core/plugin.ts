@@ -37,7 +37,7 @@ const plugin: Plugin<[DocxOptions?]> = function (opts = {}) {
                 const code = codeNode.value ?? ''
                 if (!code.trim()) continue
                 try {
-                    const png = await renderMermaidToPng(code)
+                    const png = await renderMermaidToPng(code, opts.mermaid)
                     ;(codeNode as any).data = (codeNode as any).data ?? {}
                     ;(codeNode as any).data.docxMermaid = png
                 } catch (err) {
