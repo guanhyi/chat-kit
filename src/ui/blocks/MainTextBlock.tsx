@@ -2,6 +2,7 @@ import React from 'react'
 import { MarkdownRenderer } from '../markdown/MarkdownRenderer'
 import { TimelineItem } from './TimelineItem'
 import { ReasoningContainer } from './ReasoningContainer'
+import { MarkdownAnimateProps } from '../markdown/animate/AnimatedMarkdown'
 
 export interface MainTextBlockProps {
     content: string
@@ -13,7 +14,7 @@ export interface MainTextBlockProps {
 /**
  * 正文块：使用 MarkdownRenderer 渲染主回答内容
  */
-export const MainTextBlock: React.FC<MainTextBlockProps> = ({
+export const MainTextBlock: React.FC<MainTextBlockProps & MarkdownAnimateProps> = ({
     content,
     status = 'idle',
     citations,

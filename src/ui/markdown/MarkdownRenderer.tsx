@@ -84,7 +84,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
     citations,
     components,
     citationRender,
-    animation = animations.blurAndSharpen,
+    animation = animations.fadeIn,
     animationDuration = '0.5s',
     ...rest
 }) => {
