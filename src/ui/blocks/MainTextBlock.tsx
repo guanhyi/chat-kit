@@ -21,7 +21,7 @@ export const MainTextBlock: React.FC<MainTextBlockProps> = ({
 }) => {
     return (
         <MarkdownRenderer
-            className={className || 'prose  markdown markdown-here-wrapper'}
+            className={className || 'prose w-full markdown markdown-here-wrapper'}
             content={content || ''}
             status={status}
             citations={citations}
