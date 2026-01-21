@@ -15,8 +15,8 @@ export type MarkdownAnimateProps = {
 
 export const AnimatedMarkdown = ({
     content,
-    sep = 'diff',
-    animation: animationName = 'fadeIn',
+    sep = 'char',
+    animation: animationName = undefined,
     animationDuration = '1s',
     animationTimingFunction = 'ease-in-out',
     components = {},
@@ -130,11 +130,23 @@ export const AnimatedMarkdown = ({
             h5: ({ node, ...props }: any) => <h5 {...props}>{animateText(props.children)}</h5>,
             h6: ({ node, ...props }: any) => <h6 {...props}>{animateText(props.children)}</h6>,
             p: ({ node, ...props }: any) => <p {...props}>{animateText(props.children)}</p>,
-            li: ({ node, ...props }: any) => (
-                <li {...props} className="custom-li" style={animationStyle}>
-                    {animateText(props.children)}
-                </li>
-            ),
+            li: ({ node, ...props }: any) => {
+                // 注意：不要在 li 级别再对 children 做 animateText，
+                // 因为 li 的 children 可能包含 <p>/<ul> 等块级元素，包一层 span 会破坏语义结构，
+                // 从而导致 Tailwind Typography（prose）对列表的样式/缩进/marker 计算异常。
+                const { className, style, children, ...restProps } = props
+                return (
+                    <li
+                        {...restProps}
+                        className={[className, 'custom-li', 'ft-custom-li']
+                            .filter(Boolean)
+                            .join(' ')}
+                        style={{ ...(style || {}), ...animationStyle }}
+                    >
+                        {children}
+                    </li>
+                )
+            },
             a: ({ node, ...props }: any) => (
                 <a {...props} href={props.href} target="_blank" rel="noopener noreferrer">
                     {animateText(props.children)}

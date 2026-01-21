@@ -231,26 +231,37 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
     return (
         <Styled
             className={clsx(
-                'space-y-4 whitespace-normal *:first:mt-0 *:last:mb-0 prose lg:prose-md prose-pre:p-0 prose-pre:m-0 ',
+                'space-y-4 whitespace-normal *:first:mt-0 *:last:mb-0  ',
                 // '*:last:after:inline *:last:after:align-baseline *:last:after:content-[var(--streamdown-caret)]',
                 className
             )}
         >
-            <AnimatedMarkdown
-                {...rest}
-                {...(status === 'streaming'
-                    ? { animation: animation, animationDuration: animationDuration }
-                    : {
-                          animation: undefined,
-                          animationDuration: '0s'
-                      })}
-                // animation={status !== 'streaming' ? undefined : 'ft-fadeIn'}
-                content={messageContent}
-                remarkPlugins={remarkPlugins}
-                rehypePlugins={rehypePlugins}
-                components={markdownComponents}
-                urlTransform={urlTransform}
-            />
+            {status === 'streaming' ? (
+                <AnimatedMarkdown
+                    {...rest}
+                    {...(status === 'streaming'
+                        ? { animation: animation, animationDuration: animationDuration }
+                        : {
+                              animation: undefined,
+                              animationDuration: '0s'
+                          })}
+                    // animation={status !== 'streaming' ? undefined : 'ft-fadeIn'}
+                    content={messageContent}
+                    remarkPlugins={remarkPlugins}
+                    rehypePlugins={rehypePlugins}
+                    components={markdownComponents}
+                    urlTransform={urlTransform}
+                />
+            ) : (
+                <ReactMarkdown
+                    remarkPlugins={remarkPlugins}
+                    rehypePlugins={rehypePlugins}
+                    components={markdownComponents}
+                    urlTransform={urlTransform}
+                >
+                    {messageContent}
+                </ReactMarkdown>
+            )}
         </Styled>
     )
 }
