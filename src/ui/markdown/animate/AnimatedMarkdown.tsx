@@ -2,13 +2,15 @@ import ReactMarkdown, { Options } from 'react-markdown'
 import { animations } from './utils'
 import { Fragment, useCallback, useMemo } from 'react'
 import TokenizedText from './SplitText'
+import AnimatedImage from './AnimatedImage'
 
-interface MarkdownAnimateTextProps extends Options {
+export type MarkdownAnimateProps = {
     content: string
     sep?: string
     animation?: string
     animationDuration?: string
     animationTimingFunction?: string
+    imgHeight?: string
 }
 
 export const AnimatedMarkdown = ({
@@ -18,8 +20,9 @@ export const AnimatedMarkdown = ({
     animationDuration = '1s',
     animationTimingFunction = 'ease-in-out',
     components = {},
+    imgHeight = '20rem',
     ...rest
-}: MarkdownAnimateTextProps) => {
+}: MarkdownAnimateProps & Options) => {
     const animation = animations[animationName as keyof typeof animations] || animationName
     const animationStyle: any = {
         animation: `${animation} ${animationDuration} ${animationTimingFunction}`
@@ -170,17 +173,17 @@ export const AnimatedMarkdown = ({
                     }}
                 />
             ),
-            // img: ({ node, ...props }: any) => (
-            //     <AnimatedImage
-            //         src={props.src}
-            //         height={imgHeight}
-            //         alt={props.alt}
-            //         animation={animation || ''}
-            //         animationDuration={animationDuration}
-            //         animationTimingFunction={animationTimingFunction}
-            //         animationIterationCount={1}
-            //     />
-            // ),
+            img: ({ node, ...props }: any) => (
+                <AnimatedImage
+                    src={props.src}
+                    height={imgHeight}
+                    alt={props.alt}
+                    animation={animation || ''}
+                    animationDuration={animationDuration}
+                    animationTimingFunction={animationTimingFunction}
+                    animationIterationCount={1}
+                />
+            ),
             // table: ({ node, ...props }: any) => (
             //     <table {...props} style={animationStyle}>
             //         {props.children}
@@ -200,5 +203,9 @@ export const AnimatedMarkdown = ({
         [animateText, components, animation, animationDuration, animationTimingFunction]
     )
 
-    return <ReactMarkdown components={animatedComponents} {...rest}></ReactMarkdown>
+    return (
+        <ReactMarkdown components={animatedComponents} {...rest}>
+            {content}
+        </ReactMarkdown>
+    )
 }

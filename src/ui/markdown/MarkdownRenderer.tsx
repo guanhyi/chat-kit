@@ -24,7 +24,8 @@ import clsx from 'clsx'
 import styled, { keyframes } from 'styled-components'
 import { cjk } from './plugins/cjk'
 import { ftAnimateStyles } from './animate/styles'
-import { AnimatedMarkdown } from './animate/AnimatedMarkdown'
+import { AnimatedMarkdown, MarkdownAnimateProps } from './animate/AnimatedMarkdown'
+import { animations } from './animate/utils'
 
 const streamdownCaretBlink = keyframes`
     0%, 49% {
@@ -73,7 +74,7 @@ export interface MarkdownRendererProps {
  * - 兼容 KaTeX / MathJax、脚注、原始 HTML（受控）
  * - 不依赖业务组件库，可在多个项目中复用
  */
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
+export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateProps> = ({
     content,
     status = 'idle',
     className,
@@ -82,7 +83,10 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     postProcess,
     citations,
     components,
-    citationRender
+    citationRender,
+    animation = animations.blurAndSharpen,
+    animationDuration = '0.5s',
+    ...rest
 }) => {
     const rawContent = content || ''
     const processedContent = useMemo(
@@ -223,28 +227,24 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     const markdownComponents = useMemo(() => {
         return { a: A, MermaidBlock: MermaidBlock, ...(components || {}) }
     }, [A, Pre, components])
-    const style = useMemo(
-        () =>
-            status === 'streaming'
-                ? ({
-                      '--streamdown-caret': '" ●"'
-                  } as CSSProperties)
-                : undefined,
-        [status]
-    )
+
     return (
         <Styled
             className={clsx(
-                'space-y-4 whitespace-normal *:first:mt-0 *:last:mb-0',
+                'space-y-4 whitespace-normal *:first:mt-0 *:last:mb-0 prose lg:prose-md prose-pre:p-0 prose-pre:m-0 prose-pre:bg-transparent',
                 // '*:last:after:inline *:last:after:align-baseline *:last:after:content-[var(--streamdown-caret)]',
                 className
             )}
-            style={style}
         >
             <AnimatedMarkdown
+                {...rest}
                 {...(status === 'streaming'
-                    ? { animation: 'ft-fadeIn', animationDuration: '0.5s' }
-                    : {})}
+                    ? { animation: animation, animationDuration: animationDuration }
+                    : {
+                          animation: undefined,
+                          animationDuration: '0s'
+                      })}
+                // animation={status !== 'streaming' ? undefined : 'ft-fadeIn'}
                 content={messageContent}
                 remarkPlugins={remarkPlugins}
                 rehypePlugins={rehypePlugins}

@@ -20,3 +20,5 @@ export * from './ui/blocks/ToolBlock'
 export * from './ui/blocks/CitationBlock'
 
 export * from './md-to-doc/MdToDoc'
+
+export * from './ui/markdown/animate/utils'
