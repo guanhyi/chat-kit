@@ -231,7 +231,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
     return (
         <Styled
             className={clsx(
-                'space-y-4 whitespace-normal *:first:mt-0 *:last:mb-0 prose lg:prose-md prose-pre:p-0 prose-pre:m-0 prose-pre:bg-transparent',
+                'space-y-4 whitespace-normal *:first:mt-0 *:last:mb-0 prose lg:prose-md prose-pre:p-0 prose-pre:m-0 ',
                 // '*:last:after:inline *:last:after:align-baseline *:last:after:content-[var(--streamdown-caret)]',
                 className
             )}
