@@ -23,6 +23,8 @@ import remend from 'remend'
 import clsx from 'clsx'
 import styled, { keyframes } from 'styled-components'
 import { cjk } from './plugins/cjk'
+import { ftAnimateStyles } from './animate/styles'
+import { AnimatedMarkdown } from './animate/AnimatedMarkdown'
 
 const streamdownCaretBlink = keyframes`
     0%, 49% {
@@ -34,41 +36,7 @@ const streamdownCaretBlink = keyframes`
 `
 
 const Styled = styled.div`
-    /* 默认：把光标挂在“最后一个块级节点”的末尾 */
-    & > *:last-child:not(ul):not(ol)::after {
-        display: inline-block;
-        vertical-align: baseline;
-        content: var(--streamdown-caret);
-        animation: ${streamdownCaretBlink} 1s step-end infinite;
-        pointer-events: none;
-    }
-
-    /*
-     * 例外：如果最后一个节点是列表（ul/ol），光标挂在 ul/ol 的 ::after 会变成“列表后另起一行”。
-     * 因为 ul/ol 的子节点 li 是块级，ul::after 会作为 ul 的最后一个子节点单独排版。
-     * 所以这里把光标移到最后一个 li 上，才能跟最后一条内容同一行。
-     */
-    & > :last-child:is(ul, ol)::after {
-        content: none;
-    }
-
-    & > :last-child:is(ul, ol) > li:last-child::after {
-        display: inline-block;
-        vertical-align: baseline;
-        content: var(--streamdown-caret);
-        animation: ${streamdownCaretBlink} 1s step-end infinite;
-        pointer-events: none;
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-        & > *:last-child:not(ul):not(ol)::after {
-            animation: none;
-        }
-
-        & > :last-child:is(ul, ol) > li:last-child::after {
-            animation: none;
-        }
-    }
+    ${ftAnimateStyles}
 `
 
 export type MathEngine = 'KaTeX' | 'MathJax' | 'none'
@@ -273,14 +241,16 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             )}
             style={style}
         >
-            <ReactMarkdown
+            <AnimatedMarkdown
+                {...(status === 'streaming'
+                    ? { animation: 'ft-fadeIn', animationDuration: '0.5s' }
+                    : {})}
+                content={messageContent}
                 remarkPlugins={remarkPlugins}
                 rehypePlugins={rehypePlugins}
                 components={markdownComponents}
                 urlTransform={urlTransform}
-            >
-                {messageContent}
-            </ReactMarkdown>
+            />
         </Styled>
     )
 }
