@@ -65,12 +65,18 @@ function parseViewBox(svg: SVGSVGElement): Rect | null {
 }
 
 function parseSvgString(svgString: string): SVGSVGElement {
+  // 容错解析：优先使用 HTML 解析器吞掉非 XML 语法（例如 <br>），再用 XMLSerializer 输出成合法 XML。
+  // 这条思路与 UI “下载 PNG”链路更接近，跨浏览器更稳定，也能避免 Firefox 控制台刷 XML 解析错误。
+  const tpl = document.createElement("template");
+  tpl.innerHTML = svgString.trim();
+  const svgFromHtml = tpl.content.querySelector("svg");
+  if (svgFromHtml) return svgFromHtml.cloneNode(true) as SVGSVGElement;
+
+  // 兜底：极少数情况下 HTML 解析拿不到 svg（例如字符串不是 HTML 片段），再退回到标准 SVG/XML 解析。
   const parser = new DOMParser();
   const doc = parser.parseFromString(svgString, "image/svg+xml");
   const svgEl = doc.querySelector("svg");
-  if (!svgEl) {
-    throw new Error("mermaid.render 未返回有效的 <svg> 内容");
-  }
+  if (!svgEl) throw new Error("mermaid.render 未返回有效的 <svg> 内容");
   // importNode 能确保 SVG 元素归属到当前 document，便于后续 getBBox / 序列化
   return document.importNode(svgEl, true) as SVGSVGElement;
 }
@@ -207,8 +213,9 @@ export async function renderMermaidToPng(
   svgRoot.style.height = "";
   svgRoot.style.maxWidth = "";
 
-  // 优先信任 mermaid 生成的 viewBox（更接近“完整内容”），没有的话再用 bbox 兜底
-  const baseBox = parseViewBox(svgRoot) ?? measureSvgContentBox(svgRoot);
+  // 优先用 bbox（从真实渲染结果测量），避免不同浏览器/版本下 mermaid 生成的 viewBox 不完整导致被裁切；
+  // measureSvgContentBox 内部会在 bbox 不可用时回退到 viewBox。
+  const baseBox = measureSvgContentBox(svgRoot);
   const x = baseBox.x - opts.padding;
   const y = baseBox.y - opts.padding;
   const width = baseBox.width + opts.padding * 2;
