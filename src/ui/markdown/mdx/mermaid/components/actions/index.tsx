@@ -84,7 +84,7 @@ const MermaidBlockActions: React.FC<MermaidBlockActionsProps> = ({
                 theme="borderless"
             >
                 <Download size={16} />
-                下载
+                下载 PNG
             </Button>
         </>
     )

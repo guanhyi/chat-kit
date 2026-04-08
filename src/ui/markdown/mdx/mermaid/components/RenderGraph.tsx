@@ -11,7 +11,8 @@ import {
     useState
 } from 'react'
 import GraphContext from '../context'
-import { downloadPng, getMermaidId, parseSvgToJsx, svgToPngAndCopy } from '../utils'
+import { downloadPng, svgToPngAndCopy } from '../export'
+import { getMermaidId, parseSvgToJsx } from '../utils'
 
 const defaultConfig: MermaidConfig = {
     startOnLoad: false,
@@ -59,7 +60,7 @@ const RenderGraphInner = forwardRef<RenderGraphRef, RenderGraphProps>(({ code, n
         }
 
         initMermaid()
-    }, [mermaidConfig.theme])
+    }, [])
 
     useEffect(() => {
         if (!code.trim()) {
@@ -93,12 +94,12 @@ const RenderGraphInner = forwardRef<RenderGraphRef, RenderGraphProps>(({ code, n
     useImperativeHandle(ref, () => ({
         download: async () => {
             return downloadPng({
-                id: svgIdRef.current
+                svgString
             })
         },
         copy: async () => {
             return svgToPngAndCopy({
-                id: svgIdRef.current
+                svgString
             })
         },
         getSvg: () => {
