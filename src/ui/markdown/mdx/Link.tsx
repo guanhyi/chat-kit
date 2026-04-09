@@ -5,6 +5,7 @@ export interface CitationItem {
     title?: string
     url?: string
     extra?: any
+    [key: string]: any
 }
 
 export interface CitationProps {
@@ -63,4 +64,3 @@ export const Link = (props: LinkProps) => {
 
     return <a {...props} />
 }
-
