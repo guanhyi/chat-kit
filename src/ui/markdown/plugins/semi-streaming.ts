@@ -29,7 +29,7 @@ const WRAPPED_KEY = 'remark-semi-streaming-parser-wrapped'
  * remark 插件：在解析前补全未闭合的 Markdown 语法，降低流式渲染抖动
  */
 export const remarkSemiStreaming: Plugin<[RemarkSemiStreamingOptions?]> = function (options = {}) {
-    const data = this.data()
+    const data = this.data() as Record<string, unknown>
     if (data[WRAPPED_KEY]) {
         return
     }
@@ -134,7 +134,10 @@ function analyzeMarkdown(source: string, options: RemarkSemiStreamingOptions) {
                 const top = fenceStack[fenceStack.length - 1]
                 if (top && top.marker === marker && top.length === length) {
                     removeEntry(
-                        (entry) => entry.type === 'fence' && entry.marker === marker && entry.length === length
+                        (entry) =>
+                            entry.type === 'fence' &&
+                            entry.marker === marker &&
+                            entry.length === length
                     )
                 } else {
                     pushEntry({ type: 'fence', marker, length })
@@ -208,11 +211,17 @@ function analyzeMarkdown(source: string, options: RemarkSemiStreamingOptions) {
 
             if (canClose) {
                 let closed = removeEntry(
-                    (entry) => entry.type === 'emphasis' && entry.marker === marker && entry.length === length
+                    (entry) =>
+                        entry.type === 'emphasis' &&
+                        entry.marker === marker &&
+                        entry.length === length
                 )
                 if (!closed) {
                     closed = removeEntry(
-                        (entry) => entry.type === 'emphasis' && entry.marker === marker && entry.length !== undefined
+                        (entry) =>
+                            entry.type === 'emphasis' &&
+                            entry.marker === marker &&
+                            entry.length !== undefined
                     )
                 }
                 if (!closed && canOpen) {

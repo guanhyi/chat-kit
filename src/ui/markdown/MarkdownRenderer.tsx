@@ -17,8 +17,11 @@ import { Link, type CitationProps } from './mdx/Link'
 import { MermaidDiagram } from './mdx/Mermaid'
 import MermaidBlock from './mdx/mermaid/MermaidBlock'
 import rehypeMermaid from './mdx/mermaid/rehypeMermaid'
+import MarkmapBlock from './mdx/markmap/MarkmapBlock'
+import rehypeMarkmap from './mdx/markmap/rehypeMarkmap'
 import { Pluggable, PluggableList } from 'unified'
 import remarkMermaid from './mdx/mermaid/remarkMermaid'
+import remarkMarkmap from './mdx/markmap/remarkMarkmap'
 import remend from 'remend'
 import clsx from 'clsx'
 import styled, { keyframes } from 'styled-components'
@@ -66,6 +69,7 @@ export interface MarkdownRendererProps {
     citations?: any[]
     components?: any
     citationRender?: (props: CitationProps) => JSX.Element
+    sep?: 'char' | 'word' | 'diff'
 }
 
 /**
@@ -86,6 +90,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
     citationRender,
     animation = animations.fadeIn,
     animationDuration = '0.5s',
+    sep = 'char',
     ...rest
 }) => {
     const rawContent = content || ''
@@ -158,14 +163,15 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
             ...cjk.remarkPluginsAfter,
             remarkMath,
             remarkCustomFootnotes,
-            remarkMermaid
+            remarkMermaid,
+            remarkMarkmap
             // remarkSemiStreaming
         ]
         return list
     }, [])
 
     const rehypePlugins = useMemo(() => {
-        const list: Pluggable[] = [[rehypeMermaid, { mermaidConfig, ssr: false }]]
+        const list: Pluggable[] = [[rehypeMermaid, { mermaidConfig, ssr: false }], rehypeMarkmap]
         if (allowRawSvg) list.push(rehypeRaw)
         list.push(rehypeFootnoteLinks)
         if (mathEngine === 'KaTeX') list.push(rehypeKatex)
@@ -225,7 +231,12 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
     }, [])
 
     const markdownComponents = useMemo(() => {
-        return { a: A, MermaidBlock: MermaidBlock, ...(components || {}) }
+        return {
+            a: A,
+            MermaidBlock: MermaidBlock,
+            MarkmapBlock: MarkmapBlock,
+            ...(components || {})
+        }
     }, [A, Pre, components])
 
     return (
@@ -238,6 +249,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
         >
             {status === 'streaming' ? (
                 <AnimatedMarkdown
+                    sep={sep}
                     {...rest}
                     {...(status === 'streaming'
                         ? { animation: animation, animationDuration: animationDuration }

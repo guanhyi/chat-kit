@@ -21,8 +21,8 @@ export const Segmented = (props: {
                 '--semi-border-radius-small': 'var(--radius)'
             }}
         >
-            <Radio value={'mermaid'}>流程图</Radio>
-            <Radio value={'code'}>代码</Radio>
+            <Radio value={'mermaid'}>图表</Radio>
+            <Radio value={'code'}>源码</Radio>
         </RadioGroup>
     )
 }
