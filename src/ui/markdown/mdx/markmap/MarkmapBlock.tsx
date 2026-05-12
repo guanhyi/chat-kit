@@ -31,18 +31,21 @@ const MarkmapBlock: React.FC<MarkmapBlockProps> = ({ code, isComplete = false, j
                         </div>
                     )}
                 </div>
-                <div className="m-0 overflow-auto bg-gray-50 p-3 text-xs">
-                    {activeMode === 'chart' ? (
+                {activeMode === 'chart' ? (
+                    <div className="m-0 overflow-hidden bg-gray-50 p-2 text-xs">
                         <RenderMarkmap
                             code={code}
                             isComplete={isComplete}
                             jsonOptions={jsonOptions}
+                            frameless={true}
                             ref={graphRef}
                         />
-                    ) : (
+                    </div>
+                ) : (
+                    <div className="m-0 overflow-auto bg-gray-50 p-3 text-xs">
                         <CodeHighlight code={code} language="markdown" style={CODE_PANEL_STYLE} />
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
         </NiceModal.Provider>
     )

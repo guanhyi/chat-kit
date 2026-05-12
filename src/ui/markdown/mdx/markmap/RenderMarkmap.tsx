@@ -5,8 +5,6 @@ import { getMarkmapModules, loadMarkmapAssets } from './moduleLoader'
 import type { RenderMarkmapRef } from './types'
 
 const DEFAULT_HEIGHT_PX = 560
-const DEFAULT_WIDTH_PX = 640
-const DEFAULT_VIEWPORT_HORIZONTAL_GAP_PX = 96
 const ZOOM_STEP = 1.2
 const DEFAULT_JSON_OPTIONS: Partial<IMarkmapJSONOptions> = {
     zoom: true,
@@ -52,10 +50,9 @@ function buildCanvasStyle(
 ): CSSProperties {
     return {
         height: height ?? DEFAULT_HEIGHT_PX,
-        width:
-            width ??
-            `min(${DEFAULT_WIDTH_PX}px, calc(100vw - ${DEFAULT_VIEWPORT_HORIZONTAL_GAP_PX}px))`,
-        maxWidth: '100%'
+        width: width ?? '100%',
+        maxWidth: '100%',
+        minWidth: 0
     }
 }
 
