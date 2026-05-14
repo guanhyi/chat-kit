@@ -613,7 +613,7 @@ function createBlocksLifecycle<TExtra = any>(
             const last = draft[draft.length - 1]
             // 允许外部先插入 loading 占位，然后在 text-start/thinking-start 中切换为 ai
             if (!last) return
-
+            last.raw = event.raw
             last.blocks = last.blocks || []
 
             switch (event.type) {
