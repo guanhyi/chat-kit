@@ -18,6 +18,7 @@ export * from './ui/blocks/MainTextBlock'
 export * from './ui/blocks/ThinkingBlock'
 export * from './ui/blocks/ToolBlock'
 export * from './ui/blocks/CitationBlock'
+export * from './ui/blocks/ActivitySummaryBlock'
 
 export * from './md-to-doc/MdToDoc'
 
