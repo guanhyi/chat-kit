@@ -9,6 +9,8 @@ type ChatBubbleListComponent = <TMessage extends BaseMessage = BaseMessage>(
     props: ChatBubbleListProps<TMessage> & React.RefAttributes<ChatBubbleListRef>
 ) => React.ReactElement | null
 
+const CHAT_VIRTUAL_BUFFER_SIZE = 2400
+
 /**
  * 基础气泡列表组件：
  * - 通过 roles 映射不同 role 的渲染方式；
@@ -129,7 +131,11 @@ const ChatBubbleListInner = (
     }, [messages.length, autoScroll, autoScrollCtrl])
 
     const content = (
-        <VList ref={vListRef} style={{ height: '100%', width: '100%' }}>
+        <VList
+            ref={vListRef}
+            bufferSize={CHAT_VIRTUAL_BUFFER_SIZE}
+            style={{ height: '100%', width: '100%' }}
+        >
             {messages.map((m, index) => {
                 const roleConfig = roles[m.role]
                 if (!roleConfig) return null
