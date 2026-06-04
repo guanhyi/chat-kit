@@ -35,7 +35,16 @@ const defaultIsFinal = (raw: any): boolean => {
 export const useChatStream = <TExtra = any>(
     options: UseChatStreamOptions<TExtra>
 ): UseChatStreamResult<TExtra> => {
-    const { httpClient, buildRequest, parseEvent, isFinal, onOpen, onError, onComplete } = options
+    const {
+        httpClient,
+        buildRequest,
+        parseEvent,
+        isFinal,
+        onOpen,
+        onRawEvent,
+        onError,
+        onComplete
+    } = options
 
     const [loading, setLoading] = useState(false)
     const cancelRef = useRef<Subscription | null>(null)
@@ -121,6 +130,30 @@ export const useChatStream = <TExtra = any>(
             // 交给调用方记录“请求已打开”
             onOpen?.({ question, extra })
 
+            const handleRawData = (raw: any) => {
+                const timestamp = Date.now()
+                onRawEvent?.({
+                    raw,
+                    question,
+                    extra,
+                    timestamp
+                })
+
+                const finalChecker = isFinal || defaultIsFinal
+                const parser = parseEvent || defaultParseEvent
+                const events = parser(raw)
+                // isFinal 只看原始数据，由调用方自己决定
+                if (finalChecker(raw)) {
+                    completionRef.current = undefined
+                    setLoading(false)
+                    onComplete?.()
+                    // 不在这里自动取消订阅，让调用方决定何时取消
+                }
+                // 此处仅负责解析，具体如何消费事件由上层决定
+                // 事件对象通过 parser 返回，通常在上层 parseEvent 实现中被使用
+                void events
+            }
+
             const sub = httpClient
                 .post(api, body, {
                     observe: 'events',
@@ -139,21 +172,7 @@ export const useChatStream = <TExtra = any>(
                                 offsetRef.current = partialText.length
                                 if (chunk) {
                                     bufferRef.current += chunk
-                                    drainBuffer((raw) => {
-                                        const finalChecker = isFinal || defaultIsFinal
-                                        const parser = parseEvent || defaultParseEvent
-                                        const events = parser(raw)
-                                        // isFinal 只看原始数据，由调用方自己决定
-                                        if (finalChecker(raw)) {
-                                            completionRef.current = undefined
-                                            setLoading(false)
-                                            onComplete?.()
-                                            // 不在这里自动取消订阅，让调用方决定何时取消
-                                        }
-                                        // 此处仅负责解析，具体如何消费事件由上层决定
-                                        // 事件对象通过 parser 返回，通常在上层 parseEvent 实现中被使用
-                                        void events
-                                    })
+                                    drainBuffer(handleRawData)
                                 }
                                 break
                             }
@@ -163,17 +182,7 @@ export const useChatStream = <TExtra = any>(
                                     const bodyText = (event as any).body as string | undefined
                                     if (bodyText && offsetRef.current === 0) {
                                         bufferRef.current += bodyText
-                                        drainBuffer((raw) => {
-                                            const finalChecker = isFinal || defaultIsFinal
-                                            const parser = parseEvent || defaultParseEvent
-                                            const events = parser(raw)
-                                            if (finalChecker(raw)) {
-                                                completionRef.current = undefined
-                                                setLoading(false)
-                                                onComplete?.()
-                                            }
-                                            void events
-                                        })
+                                        drainBuffer(handleRawData)
                                     }
                                 } catch (e) {
                                     onError?.(e)
@@ -196,7 +205,18 @@ export const useChatStream = <TExtra = any>(
             cancelRef.current = sub
             return sub
         },
-        [buildRequest, cleanup, drainBuffer, httpClient, isFinal, onComplete, onError, onOpen, parseEvent]
+        [
+            buildRequest,
+            cleanup,
+            drainBuffer,
+            httpClient,
+            isFinal,
+            onComplete,
+            onError,
+            onOpen,
+            onRawEvent,
+            parseEvent
+        ]
     )
 
     return {
@@ -207,4 +227,3 @@ export const useChatStream = <TExtra = any>(
 }
 
 export default useChatStream
-

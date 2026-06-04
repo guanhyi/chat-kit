@@ -93,6 +93,18 @@ export interface StreamEvent<TType extends string = string, TPayload = any, TMet
     meta?: TMeta
 }
 
+/**
+ * 原始流事件通知：每条合法 JSON SSE 都会触发，供应用层消费协议元信息。
+ * 不进入 messageLifecycle，也不默认修改 messages。
+ */
+export interface RawStreamEvent<TExtra = any> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    raw: any
+    question: string
+    extra?: TExtra
+    timestamp: number
+}
+
 export interface UseChatStreamOptions<TExtra = any> {
     httpClient: HttpClientLike
 
@@ -111,6 +123,9 @@ export interface UseChatStreamOptions<TExtra = any> {
     /** 解析服务端 JSON，转换为 StreamEvent；默认实现可参考当前 SSE 协议 */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     parseEvent?: (rawData: any) => StreamEvent[]
+
+    /** 每条合法 JSON SSE 的旁路通知；不影响 parseEvent 与 messages 生命周期 */
+    onRawEvent?: (event: RawStreamEvent<TExtra>) => void
 
     /** 生命周期回调（可选） */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
