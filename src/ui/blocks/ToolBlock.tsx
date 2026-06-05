@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { TimelineItem } from './TimelineItem'
 import { ReasoningContainer } from './ReasoningContainer'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Wrench } from 'lucide-react'
 import { MarkdownRenderer } from '../markdown/MarkdownRenderer'
 
 export interface ToolBlockProps {
@@ -26,25 +26,26 @@ export const ToolBlock: React.FC<ToolBlockProps> = ({
     return (
         <ReasoningContainer className={className}>
             <TimelineItem
+                icon={<Wrench size={11} />}
                 highlight={status === 'streaming'}
                 title={
                     <div
-                        className="flex items-center text-[14px] hover:bg-gray-200 rounded-lg cursor-pointer flex-1 w-full"
+                        className="flex items-center text-[13px] hover:bg-gray-100 rounded-md cursor-pointer flex-1 w-full"
                         onClick={() => setOpen((v) => !v)}
                     >
-                        <div className="font-[500] pl-[10px]">已完成工具调用</div>
-                        <div className="text-gray-400 ml-auto rounded-lg p-[5px]">
-                            {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        <div className="font-[500] pl-[8px]">已完成工具调用</div>
+                        <div className="text-gray-400 ml-auto rounded-md p-[4px]">
+                            {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                         </div>
                     </div>
                 }
                 description={
                     open ? (
-                        <div className="mt-2 w-full overflow-hidden">
-                            <div className="bg-gray-50 rounded-lg border p-2 w-full">
+                        <div className="mt-1.5 w-full overflow-hidden">
+                            <div className="bg-gray-50 rounded-md border border-gray-100 p-2 w-full">
                                 <div className="overflow-x-auto w-full max-h-60 overflow-y-auto">
                                     <MarkdownRenderer
-                                        className="prose prose-sm min-w-0 [&_table]:whitespace-nowrap [&_p]:mb-2 [&_ul]:mb-2 [&_ol]:mb-2 [&_pre]:whitespace-pre [&_pre]:overflow-x-auto [&_code]:whitespace-pre"
+                                        className="prose prose-sm min-w-0 text-[12px] [&_table]:whitespace-nowrap [&_p]:mb-2 [&_ul]:mb-2 [&_ol]:mb-2 [&_pre]:whitespace-pre [&_pre]:overflow-x-auto [&_code]:whitespace-pre"
                                         content={content || ''}
                                         status={status}
                                     />
@@ -61,4 +62,3 @@ export const ToolBlock: React.FC<ToolBlockProps> = ({
 }
 
 export default ToolBlock
-

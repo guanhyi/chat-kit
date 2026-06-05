@@ -69,6 +69,34 @@ const truncateExcerpt = (text: string, maxLength = DEFAULT_EXCERPT_MAX_LENGTH) =
     return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text
 }
 
+const formatActivityDuration = (durationMs: number) => {
+    if (!Number.isFinite(durationMs) || durationMs < 1000) {
+        return '1秒'
+    }
+
+    const totalSeconds = Math.round(durationMs / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+
+    if (minutes === 0) {
+        return `${seconds}秒`
+    }
+
+    return seconds > 0 ? `${minutes}分${seconds}秒` : `${minutes}分`
+}
+
+const getActivityDurationText = (blocks: ActivityBlock[]) => {
+    const times = blocks
+        .flatMap((block) => [block.createdAt, block.updatedAt])
+        .filter((time) => Number.isFinite(time))
+
+    if (times.length === 0) {
+        return '1秒'
+    }
+
+    return formatActivityDuration(Math.max(...times) - Math.min(...times))
+}
+
 export const getLatestActivityExcerpt = (content?: string) => {
     if (!content) {
         return ''
@@ -218,14 +246,15 @@ export const getActivitySummary = (
         }
     }
 
-    const summaryParts = [
-        thinkingBlocks.length > 0 ? '已思考' : '',
-        toolBlocks.length > 0 ? `调用 ${toolBlocks.length} 个工具` : '',
-        citationDocs.length > 0 ? `引用 ${citationDocs.length} 篇` : ''
+    const completedParts = [
+        thinkingBlocks.length > 0 ? `思考 ${thinkingBlocks.length} 段` : '',
+        toolBlocks.length > 0 ? `工具 ${toolBlocks.length} 个` : '',
+        citationDocs.length > 0 ? `引用 ${citationDocs.length} 篇` : '',
+        `用时 ${getActivityDurationText(activityBlocks)}`
     ].filter(Boolean)
 
     return {
-        text: summaryParts.join(' · ') || '已完成',
+        text: `已完成：${completedParts.join(' · ')}`,
         hasDetails,
         isStreaming,
         toolCount: toolBlocks.length,

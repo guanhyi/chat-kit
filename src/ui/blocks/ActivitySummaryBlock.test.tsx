@@ -127,19 +127,23 @@ describe('getActivitySummary', () => {
         expect(summary.text).toBe('思考中：abcdefghijklmnopqrstuvwx...')
     })
 
-    it('summarizes completed thinking, tools, and citations in one line', () => {
+    it('summarizes completed activity counts and total duration in one line', () => {
         const summary = getActivitySummary(
             [
                 {
                     ...baseBlock,
                     id: 'thinking-1',
                     type: 'thinking',
+                    createdAt: 1000,
+                    updatedAt: 2500,
                     content: 'thinking'
                 },
                 {
                     ...baseBlock,
                     id: 'tool-1',
                     type: 'tool',
+                    createdAt: 3000,
+                    updatedAt: 4500,
                     toolName: 'web_search',
                     content: 'done'
                 },
@@ -147,6 +151,8 @@ describe('getActivitySummary', () => {
                     ...baseBlock,
                     id: 'citation-1',
                     type: 'citation',
+                    createdAt: 5000,
+                    updatedAt: 6200,
                     docs: [
                         { id: '1', title: 'A' },
                         { id: '2', title: 'B' }
@@ -156,7 +162,7 @@ describe('getActivitySummary', () => {
             { loading: false }
         )
 
-        expect(summary.text).toBe('已思考 · 调用 1 个工具 · 引用 2 篇')
+        expect(summary.text).toBe('已完成：思考 1 段 · 工具 1 个 · 引用 2 篇 · 用时 5秒')
         expect(summary.hasDetails).toBe(true)
     })
 
@@ -173,7 +179,7 @@ describe('getActivitySummary', () => {
             { loading: true }
         )
 
-        expect(summary.text).toBe('已思考')
+        expect(summary.text).toBe('已完成：思考 1 段 · 用时 1秒')
         expect(summary.isStreaming).toBe(false)
     })
 })

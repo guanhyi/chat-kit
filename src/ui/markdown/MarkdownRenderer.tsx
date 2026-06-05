@@ -181,7 +181,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
 
     const renderText = status === 'streaming' ? remend(displayed) : processedContent
     const messageContent = useMemo(() => {
-        return citations ? transformCitations(renderText, citations.length) : renderText
+        return citations ? transformCitations(renderText, citations) : renderText
     }, [renderText, citations, citations?.length])
 
     const urlTransform = useCallback((value: string) => {

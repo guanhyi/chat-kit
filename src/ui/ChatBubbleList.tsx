@@ -3,6 +3,7 @@ import { useOverlayScrollbars } from 'overlayscrollbars-react'
 import { VList } from 'virtua'
 import type { VListHandle } from 'virtua'
 import type { ChatBubbleListProps, ChatBubbleListRef, BaseMessage } from '../types'
+import { MessageRow } from './MessageRow'
 import { useAutoScroll } from './useAutoScroll'
 
 type ChatBubbleListComponent = <TMessage extends BaseMessage = BaseMessage>(
@@ -37,6 +38,9 @@ const ChatBubbleListInner = (
 
     const rootRef = useRef<HTMLDivElement | null>(null)
     const vListRef = useRef<VListHandle | null>(null)
+    const layoutFrameRef = useRef<number | null>(null)
+    const layoutDirtyRef = useRef(false)
+    const [layoutTick, setLayoutTick] = React.useState(0)
 
     const [initialize, instance] = useOverlayScrollbars({
         defer: true,
@@ -61,14 +65,16 @@ const ChatBubbleListInner = (
         }
     })
 
+    const getScrollViewport = React.useCallback(() => {
+        const osInstance = instance()
+        if (osInstance) {
+            return osInstance.elements().viewport as HTMLElement
+        }
+        return rootRef.current
+    }, [instance])
+
     const autoScrollCtrl = useAutoScroll(
-        () => {
-            const osInstance = instance()
-            if (osInstance) {
-                return osInstance.elements().viewport as HTMLElement
-            }
-            return rootRef.current
-        },
+        getScrollViewport,
         // 第二个参数为哨兵 Ref，当前实现已不再依赖实际 DOM 哨兵，这里传入 undefined 占位。
         undefined,
         // 阈值目前仅作为预留配置，语义保持与 useCherryScroll 的 threshold 一致
@@ -114,7 +120,7 @@ const ChatBubbleListInner = (
         return () => {
             detach?.()
         }
-    }, [autoScroll, autoScrollCtrl])
+    }, [autoScroll, autoScrollCtrl.attach])
 
     // 消息变更时尝试跟随：只在消息数量增加时触发，避免纯状态更新也强制贴底
     const prevLenRef = useRef<number>(messages.length)
@@ -128,7 +134,37 @@ const ChatBubbleListInner = (
         if (messages.length > prevLen) {
             autoScrollCtrl.maybeFollow()
         }
-    }, [messages.length, autoScroll, autoScrollCtrl])
+    }, [messages.length, autoScroll, autoScrollCtrl.maybeFollow])
+
+    useEffect(() => {
+        return () => {
+            if (layoutFrameRef.current != null) {
+                cancelAnimationFrame(layoutFrameRef.current)
+            }
+        }
+    }, [])
+
+    const handleMessageLayoutChange = React.useCallback(() => {
+        layoutDirtyRef.current = true
+        if (layoutFrameRef.current != null) {
+            return
+        }
+        layoutFrameRef.current = requestAnimationFrame(() => {
+            layoutFrameRef.current = null
+            if (!layoutDirtyRef.current) {
+                return
+            }
+            layoutDirtyRef.current = false
+            setLayoutTick((tick) => tick + 1)
+        })
+    }, [])
+
+    useEffect(() => {
+        if (!autoScroll) {
+            return
+        }
+        autoScrollCtrl.maybeFollow()
+    }, [layoutTick, autoScroll, autoScrollCtrl.maybeFollow])
 
     const content = (
         <VList
@@ -141,10 +177,16 @@ const ChatBubbleListInner = (
                 if (!roleConfig) return null
                 const placement = roleConfig.placement || 'start'
                 const alignClass = placement === 'end' ? 'flex w-full justify-end ' : 'flex w-full'
+                const messageKey = String(m.id ?? index)
                 return (
-                    <div key={m.id || index} className={alignClass + ' ' + (bubbleClassName || '')}>
+                    <MessageRow
+                        key={messageKey}
+                        messageKey={messageKey}
+                        className={alignClass + ' ' + (bubbleClassName || '')}
+                        onLayoutChange={handleMessageLayoutChange}
+                    >
                         {roleConfig.render({ message: m, index })}
-                    </div>
+                    </MessageRow>
                 )
             })}
             {/* 安全底部间距，避免输入框遮挡 */}

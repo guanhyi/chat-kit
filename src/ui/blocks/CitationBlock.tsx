@@ -1,6 +1,7 @@
 import React from 'react'
 import { TimelineItem } from './TimelineItem'
 import { ReasoningContainer } from './ReasoningContainer'
+import { FileText } from 'lucide-react'
 
 export interface CitationItem {
     id: string
@@ -12,19 +13,25 @@ export interface CitationItem {
 export interface CitationBlockProps {
     docs: CitationItem[]
     className?: string
+    showReferences?: boolean
 }
 
 /**
  * 引用文档块：展示参考文档列表
  */
-export const CitationBlock: React.FC<CitationBlockProps> = ({ docs, className }) => {
-    if (!docs || docs.length === 0) return null
+export const CitationBlock: React.FC<CitationBlockProps> = ({
+    docs,
+    className,
+    showReferences = true
+}) => {
+    if (!showReferences || !docs || docs.length === 0) return null
     return (
         <ReasoningContainer className={className}>
             <TimelineItem
-                title={<div className="pl-[10px]">参考文档</div>}
+                icon={<FileText size={11} />}
+                title={<div className="pl-[8px]">参考文档</div>}
                 description={
-                    <div className="ml-[10px] mt-2">
+                    <div className="ml-[8px] mt-1.5">
                         <ul className="list-disc pl-5">
                             {docs.map((d) => (
                                 <li key={d.id} className="leading-6">
@@ -51,4 +58,3 @@ export const CitationBlock: React.FC<CitationBlockProps> = ({ docs, className })
 }
 
 export default CitationBlock
-

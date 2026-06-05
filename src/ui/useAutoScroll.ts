@@ -1,4 +1,4 @@
-import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
+import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 type Options = {
     /**
@@ -8,6 +8,8 @@ type Options = {
      */
     threshold?: number
 }
+
+const USER_INTERACTION_GUARD_MS = 800
 
 /**
  * 自动滚动 Hook：
@@ -61,6 +63,7 @@ export function useAutoScroll(
 
     const maybeFollow = useCallback(() => {
         if (!followRef.current) return
+        if (userInteractingRef.current) return
         scrollToBottom('auto')
     }, [scrollToBottom])
 
@@ -70,7 +73,7 @@ export function useAutoScroll(
         if (userInteractTimeoutRef.current) window.clearTimeout(userInteractTimeoutRef.current)
         userInteractTimeoutRef.current = window.setTimeout(() => {
             userInteractingRef.current = false
-        }, 250)
+        }, USER_INTERACTION_GUARD_MS)
     }, [])
 
     const attach = useCallback(() => {
@@ -270,7 +273,10 @@ export function useAutoScroll(
         }
     }, [])
 
-    return { follow, attach, scrollToBottom, maybeFollow, setFollow: updateFollow }
+    return useMemo(
+        () => ({ follow, attach, scrollToBottom, maybeFollow, setFollow: updateFollow }),
+        [follow, attach, scrollToBottom, maybeFollow, updateFollow]
+    )
 }
 
 export default useAutoScroll

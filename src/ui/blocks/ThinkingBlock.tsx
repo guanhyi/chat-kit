@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { TimelineItem } from './TimelineItem'
 import { ReasoningContainer } from './ReasoningContainer'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { Brain, ChevronDown, ChevronUp } from 'lucide-react'
 import { MarkdownRenderer } from '../markdown/MarkdownRenderer'
 
 export interface ThinkingBlockProps {
@@ -22,23 +22,24 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
     return (
         <ReasoningContainer className={className}>
             <TimelineItem
+                icon={<Brain size={11} />}
                 highlight={status === 'streaming'}
                 title={
                     <div
-                        className="flex items-center text-[14px] hover:bg-gray-200 rounded-lg cursor-pointer flex-1 w-full"
+                        className="flex items-center text-[13px] hover:bg-gray-100 rounded-md cursor-pointer flex-1 w-full"
                         onClick={() => setOpen((v) => !v)}
                     >
-                        <div className="font-[500] pl-[10px]">
+                        <div className="font-[500] pl-[8px]">
                             {status === 'streaming' ? '思考中' : '已深度思考'}
                         </div>
-                        <div className="text-gray-400 ml-auto rounded-lg p-[5px]">
-                            {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        <div className="text-gray-400 ml-auto rounded-md p-[4px]">
+                            {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                         </div>
                     </div>
                 }
                 description={
                     open ? (
-                        <div className="ml-[10px] mt-2 prose prose-sm max-w-full pr-2">
+                        <div className="ml-[8px] mt-1.5 prose prose-sm max-w-full pr-2 text-[12px]">
                             <MarkdownRenderer content={content || ''} status={status} />
                         </div>
                     ) : (
@@ -51,4 +52,3 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
 }
 
 export default ThinkingBlock
-

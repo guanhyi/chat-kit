@@ -1,28 +1,61 @@
-export const transformCitations = (rawContent: string, length: number = 0) => {
-    if (!rawContent) return rawContent
+type CitationSource = number | Array<unknown> | null | undefined
 
-    if (length === 0) {
-        // 当文档引用长度为 0 时，检查文字中是否包含 [引用:number] 的格式，有就去除
-        // 同时处理常见的 Markdown 包裹（如 `...`、**...**），避免只删除内容后留下空壳语法导致解析异常
-        const inlineCodePattern = /(`+)\s*\\?\[引用:\d+\\?\]\s*\1/g
-        const strongAsteriskPattern = /\*\*\s*\\?\[引用:\d+\\?\]\s*\*\*/g
-        const strongUnderscorePattern = /__\s*\\?\[引用:\d+\\?\]\s*__/g
-        const strikePattern = /~~\s*\\?\[引用:\d+\\?\]\s*~~/g
-        const emAsteriskPattern = /\*\s*\\?\[引用:\d+\\?\]\s*\*/g
-        const emUnderscorePattern = /_\s*\\?\[引用:\d+\\?\]\s*_/g
-        const nullPattern = /\\?\[引用:\d+\\?\]/g
+const getValidCitationIds = (source: CitationSource) => {
+    const ids = new Set<number>()
 
-        return rawContent
-            .replaceAll(inlineCodePattern, '')
-            .replaceAll(strongAsteriskPattern, '')
-            .replaceAll(strongUnderscorePattern, '')
-            .replaceAll(strikePattern, '')
-            .replaceAll(emAsteriskPattern, '')
-            .replaceAll(emUnderscorePattern, '')
-            .replaceAll(nullPattern, '')
+    if (typeof source === 'number') {
+        const length = Math.max(0, Math.floor(source))
+        for (let index = 1; index <= length; index++) {
+            ids.add(index)
+        }
+        return ids
     }
 
-    const idx = Array.from({ length }, (_, index) => index + 1)
+    if (Array.isArray(source)) {
+        source.forEach((item, index) => {
+            if (item != null) {
+                ids.add(index + 1)
+            }
+        })
+    }
+
+    return ids
+}
+
+const removeInvalidCitationMarkers = (source: string, validIds: Set<number>) => {
+    let result = source
+
+    const replaceCitationOnlyWrapper = (pattern: RegExp, idGroupIndex: number) => {
+        result = result.replaceAll(pattern, (...args) => {
+            const id = Number(args[idGroupIndex])
+            return validIds.has(id) ? args[0] : ''
+        })
+    }
+
+    // 先处理仅包裹引用的 Markdown 语法，避免删掉引用后留下 **、` 等空壳。
+    replaceCitationOnlyWrapper(/(`+)\s*\\?\[引用:(\d+)\\?\]\s*\1/g, 2)
+    replaceCitationOnlyWrapper(/\*\*\s*\\?\[引用:(\d+)\\?\]\s*\*\*/g, 1)
+    replaceCitationOnlyWrapper(/__\s*\\?\[引用:(\d+)\\?\]\s*__/g, 1)
+    replaceCitationOnlyWrapper(/~~\s*\\?\[引用:(\d+)\\?\]\s*~~/g, 1)
+    replaceCitationOnlyWrapper(/\*\s*\\?\[引用:(\d+)\\?\]\s*\*/g, 1)
+    replaceCitationOnlyWrapper(/_\s*\\?\[引用:(\d+)\\?\]\s*_/g, 1)
+
+    return result.replaceAll(/\\?\[引用:(\d+)\\?\]/g, (match, id) => {
+        return validIds.has(Number(id)) ? match : ''
+    })
+}
+
+export const transformCitations = (rawContent: string, citations: CitationSource = 0) => {
+    if (!rawContent) return rawContent
+
+    const validIds = getValidCitationIds(citations)
+    const content = removeInvalidCitationMarkers(rawContent, validIds)
+
+    if (validIds.size === 0) {
+        return content
+    }
+
+    const idx = Array.from(validIds).sort((left, right) => left - right)
     const idxPart = idx.join('|')
 
     // 1) 处理行内代码包裹的引用：`[引用:1]` -> [#citation-1](citation-1)
@@ -35,7 +68,7 @@ export const transformCitations = (rawContent: string, length: number = 0) => {
     // 2) 常规引用：支持可选的转义写法 \[引用:1\]
     const pattern = new RegExp('\\\\?\\[引用:(' + idxPart + ')\\\\?\\]', 'g')
 
-    const transformed = rawContent
+    const transformed = content
         .replaceAll(inlineCodePattern, (_match, _ticks, id) => `[#citation-${id}](citation-${id})`)
         .replaceAll(pattern, (_match, id) => `[#citation-${id}](citation-${id})`)
         .replaceAll('][', '] [')
