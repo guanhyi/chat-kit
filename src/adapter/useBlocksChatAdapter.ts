@@ -902,6 +902,7 @@ export const useBlocksChatAdapter = <TExtra = any>(
         isFinal,
         parseEvent,
         onOpen,
+        onRawEvent,
         onError,
         onComplete,
         initialMessages,
@@ -930,6 +931,7 @@ export const useBlocksChatAdapter = <TExtra = any>(
             textStartedRef.current = false
             onOpen?.(body)
         },
+        onRawEvent,
         onError,
         onComplete,
         initialMessages,
