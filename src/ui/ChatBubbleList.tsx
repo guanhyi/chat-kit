@@ -30,6 +30,7 @@ const ChatBubbleListInner = (
         roles,
         autoScroll = true,
         safeBottom = 0,
+        scrollbarVisible = true,
         className,
         style,
         container,
@@ -53,6 +54,7 @@ const ChatBubbleListInner = (
         },
         options: {
             scrollbars: {
+                visibility: scrollbarVisible ? 'auto' : 'hidden',
                 autoHide: 'leave',
                 autoHideDelay: 200
             },

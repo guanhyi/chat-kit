@@ -237,6 +237,7 @@ export interface ChatBubbleListProps<TMessage extends BaseMessage = BaseMessage>
     roles: RolesMap<TMessage>
     autoScroll?: boolean
     safeBottom?: number
+    scrollbarVisible?: boolean
     className?: string
     bubbleClassName?: string
     style?: React.CSSProperties
