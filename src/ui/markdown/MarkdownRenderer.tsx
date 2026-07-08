@@ -16,6 +16,7 @@ import { remarkSemiStreaming } from './plugins/semi-streaming'
 import { Link, type CitationProps } from './mdx/Link'
 import { MermaidDiagram } from './mdx/Mermaid'
 import MermaidBlock from './mdx/mermaid/MermaidBlock'
+import type { MermaidProps } from './mdx/mermaid/types'
 import rehypeMermaid from './mdx/mermaid/rehypeMermaid'
 import MarkmapBlock from './mdx/markmap/MarkmapBlock'
 import rehypeMarkmap from './mdx/markmap/rehypeMarkmap'
@@ -44,6 +45,9 @@ const Styled = styled.div`
 `
 
 export type MathEngine = 'KaTeX' | 'MathJax' | 'none'
+export type MermaidRendererProps = MermaidProps
+export type MermaidRendererComponent = React.ComponentType<MermaidRendererProps>
+
 const mermaidConfig = {
     theme: 'default',
     flowchart: {
@@ -68,6 +72,7 @@ export interface MarkdownRendererProps {
     postProcess?: (text: string) => string
     citations?: any[]
     components?: any
+    mermaidRenderer?: MermaidRendererComponent
     citationRender?: (props: CitationProps) => JSX.Element
     sep?: 'char' | 'word' | 'diff'
 }
@@ -87,6 +92,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
     postProcess,
     citations,
     components,
+    mermaidRenderer,
     citationRender,
     animation = animations.fadeIn,
     animationDuration = '0.5s',
@@ -230,14 +236,23 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
         }
     }, [])
 
+    const MermaidBlockRenderer = useMemo(() => {
+        const Renderer = mermaidRenderer ?? MermaidBlock
+
+        return (props: MermaidRendererProps) => (
+            <Renderer {...props} streaming={status === 'streaming'} />
+        )
+    }, [mermaidRenderer, status])
+
     const markdownComponents = useMemo(() => {
         return {
             a: A,
-            MermaidBlock: MermaidBlock,
+            pre: Pre,
             MarkmapBlock: MarkmapBlock,
-            ...(components || {})
+            ...(components || {}),
+            MermaidBlock: MermaidBlockRenderer
         }
-    }, [A, Pre, components])
+    }, [A, Pre, MermaidBlockRenderer, components])
 
     return (
         <Styled

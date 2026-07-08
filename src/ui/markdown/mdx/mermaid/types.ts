@@ -5,7 +5,11 @@ export interface MermaidProps {
     code: string
     /** 代码是否完整（是否有结束的```标记） */
     isComplete?: boolean
-    node: any
+    /** 自定义mermaid配置 */
+    mermaidConfig?: MermaidConfig
+    /** 当前 Markdown 是否仍在流式输出 */
+    streaming?: boolean
+    node?: any
 }
 
 export interface MermaidState {
