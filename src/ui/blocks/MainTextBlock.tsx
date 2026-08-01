@@ -96,7 +96,10 @@ export const MainTextBlock: React.FC<MainTextBlockProps & MarkdownAnimateProps> 
 }) => {
     return (
         <MarkdownRenderer
-            className={className || 'prose w-full max-w-full markdown markdown-here-wrapper'}
+            className={
+                className ||
+                'prose w-full min-w-0 max-w-full markdown markdown-here-wrapper [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto'
+            }
             content={content || ''}
             status={status}
             citations={citations}

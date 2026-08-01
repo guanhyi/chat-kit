@@ -42,6 +42,45 @@ const streamdownCaretBlink = keyframes`
 
 const Styled = styled.div`
     ${ftAnimateStyles}
+
+    /* 代码块：宽度贴齐气泡，超宽时在块内横向滚动 */
+    .chat-code-scroll {
+        max-width: 100%;
+        min-width: 0;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(148, 163, 184, 0.9) transparent;
+    }
+
+    .chat-code-scroll::-webkit-scrollbar {
+        height: 8px;
+        width: 8px;
+    }
+
+    .chat-code-scroll::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .chat-code-scroll::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.85);
+        border-radius: 999px;
+    }
+
+    .chat-code-scroll::-webkit-scrollbar-thumb:hover {
+        background: rgba(100, 116, 139, 0.95);
+    }
+
+    .chat-code-scroll > pre {
+        margin-top: 0;
+        margin-bottom: 0;
+        max-width: none;
+        width: max-content;
+        white-space: pre;
+        overflow: visible;
+        word-break: normal;
+        overflow-wrap: normal;
+    }
 `
 
 export type MathEngine = 'KaTeX' | 'MathJax' | 'none'
@@ -220,7 +259,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
 
     const Pre = useMemo(() => {
         return (props: any) => {
-            const { children, node, ...rest } = props
+            const { children, node, className: preClassName, ...rest } = props
             void node
             const list = React.Children.toArray(children)
             const hasMermaid = list.some(
@@ -232,7 +271,22 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
             if (hasMermaid) {
                 return <div {...rest}>{children}</div>
             }
-            return <pre {...rest}>{children}</pre>
+            // 滚动容器与内容分离：
+            // - 外层宽度 = 气泡可用宽度，overflow-x:auto → 超宽时出现横向滚动条
+            // - 内层 pre 用 w-max + whitespace-pre 按真实内容撑开，不换行
+            return (
+                <div className="chat-code-scroll my-[1.25em] max-w-full min-w-0 overflow-x-auto overscroll-x-contain rounded">
+                    <pre
+                        {...rest}
+                        className={clsx(
+                            '!my-0 w-max max-w-none whitespace-pre break-normal',
+                            preClassName
+                        )}
+                    >
+                        {children}
+                    </pre>
+                </div>
+            )
         }
     }, [])
 
@@ -257,7 +311,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
     return (
         <Styled
             className={clsx(
-                'space-y-4 whitespace-normal *:first:mt-0 *:last:mb-0  ',
+                'min-w-0 max-w-full space-y-4 whitespace-normal break-words *:first:mt-0 *:last:mb-0',
                 // '*:last:after:inline *:last:after:align-baseline *:last:after:content-[var(--streamdown-caret)]',
                 className
             )}

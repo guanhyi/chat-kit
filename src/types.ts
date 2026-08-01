@@ -215,7 +215,10 @@ export interface UseChatControllerResult<TMessage extends BaseMessage = BaseMess
 
 export interface ChatBubbleListRef {
     scrollToBottom: (behavior?: ScrollBehavior | 'instant') => void
+    /** 当前滚动视口（可能是 OverlayScrollbars viewport / VList 根节点） */
     nativeElement?: HTMLElement | null
+    /** 实时取滚动视口，避免 imperative handle 初始化时拿到 null */
+    getViewport?: () => HTMLElement | null
     vListRef?: React.RefObject<VListHandle | null>
 }
 
@@ -242,6 +245,11 @@ export interface ChatBubbleListProps<TMessage extends BaseMessage = BaseMessage>
     bubbleClassName?: string
     style?: React.CSSProperties
     container?: (children: React.ReactNode) => React.ReactNode
+    /**
+     * 列表滚动回调（来自底层 VList）。
+     * 注意：scroll 事件本身不冒泡，需要通过该回调或监听 viewport 才能可靠感知滚动。
+     */
+    onScroll?: (offset: number) => void
 }
 
 export interface UseDefaultChatAdapterOptions<

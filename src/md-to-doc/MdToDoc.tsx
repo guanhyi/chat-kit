@@ -43,10 +43,7 @@ export const MdToDoc = (props: MdToDocProps) => {
         const buffer = await doc.result
 
         /**清洗fileName前15个字去除空格,并且加上-知行 */
-        const newFileName =
-            props.fileName.trim().slice(0, 15) + props.afterFileName
-                ? props.afterFileName
-                : '' + '.docx'
+        const newFileName = `${props.fileName.trim().slice(0, 15)}${props.afterFileName ?? ''}.docx`
         if (props.onClick) {
             //@ts-ignore
             props.onClick()

@@ -52,9 +52,23 @@ const ActivityTextViewport = styled.span`
     position: relative;
     display: block;
     min-width: 0;
-    flex: 1;
+    /* 0% basis：在父级宽度确定时吃掉剩余空间；同时靠 sizer 提供 min-content，避免绝对定位把整条挤成 0 宽 */
+    flex: 1 1 0%;
+    overflow: hidden;
+`
+
+/**
+ * 占位文案：参与正常文档流，负责撑开高度/最小宽度。
+ * 动画层是 absolute，本身不会贡献 intrinsic width，没有这层会在 shrink-to-fit 场景塌成空条。
+ */
+const ActivityTextSizer = styled.span`
+    display: block;
     height: 1.25rem;
     overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    visibility: hidden;
+    pointer-events: none;
 `
 
 const ActivityTextLine = styled.span<{ $state: 'stable' | 'enter' | 'exit' }>`
@@ -93,6 +107,8 @@ const AnimatedActivityText = ({ text, animationKey }: { text: string; animationK
     const previousKeyRef = useRef(animationKey)
     const exitTimerRef = useRef<number | null>(null)
     const [exitingText, setExitingText] = useState<string | null>(null)
+    // 用目标全文撑开宽度，避免打字过程中条宽跟着逐字抖动
+    const sizerText = animationKey || text
 
     useEffect(() => {
         return () => {
@@ -123,6 +139,7 @@ const AnimatedActivityText = ({ text, animationKey }: { text: string; animationK
 
     return (
         <ActivityTextViewport aria-live="polite">
+            <ActivityTextSizer aria-hidden>{sizerText}</ActivityTextSizer>
             {exitingText ? (
                 <ActivityTextLine key={`exit-${animationKey}`} $state="exit" aria-hidden>
                     {exitingText}

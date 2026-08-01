@@ -34,14 +34,18 @@ const ChatBubbleListInner = (
         className,
         style,
         container,
-        bubbleClassName = 'max-w-[820px]   py-[30px] px-[10px]  mx-auto relative'
+        onScroll,
+        bubbleClassName = 'max-w-[820px] min-w-0 w-full py-[30px] px-[10px] mx-auto relative'
     } = props
 
     const rootRef = useRef<HTMLDivElement | null>(null)
     const vListRef = useRef<VListHandle | null>(null)
     const layoutFrameRef = useRef<number | null>(null)
     const layoutDirtyRef = useRef(false)
+    const onScrollRef = useRef(onScroll)
     const [layoutTick, setLayoutTick] = React.useState(0)
+
+    onScrollRef.current = onScroll
 
     const [initialize, instance] = useOverlayScrollbars({
         defer: true,
@@ -67,13 +71,24 @@ const ChatBubbleListInner = (
         }
     })
 
-    const getScrollViewport = React.useCallback(() => {
+    const getScrollViewport = React.useCallback((): HTMLElement | null => {
         const osInstance = instance()
         if (osInstance) {
             return osInstance.elements().viewport as HTMLElement
         }
-        return rootRef.current
+        const root = rootRef.current
+        if (root?.firstElementChild instanceof HTMLElement) {
+            return root.firstElementChild
+        }
+        return root
     }, [instance])
+
+    const emitScroll = React.useCallback(() => {
+        const cb = onScrollRef.current
+        if (!cb) return
+        const viewport = getScrollViewport()
+        cb(viewport?.scrollTop ?? vListRef.current?.scrollOffset ?? 0)
+    }, [getScrollViewport])
 
     const autoScrollCtrl = useAutoScroll(
         getScrollViewport,
@@ -83,23 +98,20 @@ const ChatBubbleListInner = (
         { threshold: 0.99 }
     )
 
-    // 对外暴露 ref 能力
+    // 对外暴露 ref 能力：nativeElement / getViewport 实时读取，避免初始化时机问题
     React.useImperativeHandle(
         ref,
         (): ChatBubbleListRef => ({
             scrollToBottom: (behavior?: ScrollBehavior | 'instant') => {
                 autoScrollCtrl.scrollToBottom(behavior || 'auto')
             },
-            nativeElement: (() => {
-                const osInstance = instance()
-                if (osInstance) {
-                    return osInstance.elements().viewport as HTMLElement
-                }
-                return rootRef.current
-            })(),
+            get nativeElement() {
+                return getScrollViewport()
+            },
+            getViewport: getScrollViewport,
             vListRef
         }),
-        [autoScrollCtrl, instance]
+        [autoScrollCtrl, getScrollViewport]
     )
 
     // 初始化 OverlayScrollbars：以内部 VList 容器作为 viewport
@@ -114,6 +126,45 @@ const ChatBubbleListInner = (
             })
         }
     }, [initialize])
+
+    // 直接挂视口 scroll 监听，保证 onScroll 一定能收到（不依赖事件冒泡 / OS events 配置时机）
+    useEffect(() => {
+        if (!onScroll) return
+
+        let disposed = false
+        let viewport: HTMLElement | null = null
+        let retryTimer: number | undefined
+        let tries = 0
+
+        const onViewportScroll = () => {
+            emitScroll()
+        }
+
+        const tryAttach = () => {
+            if (disposed) return
+            viewport = getScrollViewport()
+            if (!viewport) {
+                if (tries < 40) {
+                    tries += 1
+                    retryTimer = window.setTimeout(tryAttach, 50)
+                }
+                return
+            }
+            viewport.addEventListener('scroll', onViewportScroll, { passive: true })
+            emitScroll()
+        }
+
+        tryAttach()
+
+        return () => {
+            disposed = true
+            if (retryTimer != null) {
+                window.clearTimeout(retryTimer)
+            }
+            viewport?.removeEventListener('scroll', onViewportScroll)
+        }
+        // messages.length：历史消息灌入后 OS/布局可能重建，重新绑定更稳
+    }, [emitScroll, getScrollViewport, messages.length, onScroll])
 
     // 初始化自动滚动监听
     useEffect(() => {
@@ -173,12 +224,14 @@ const ChatBubbleListInner = (
             ref={vListRef}
             bufferSize={CHAT_VIRTUAL_BUFFER_SIZE}
             style={{ height: '100%', width: '100%' }}
+            onScroll={emitScroll}
         >
             {messages.map((m, index) => {
                 const roleConfig = roles[m.role]
                 if (!roleConfig) return null
                 const placement = roleConfig.placement || 'start'
-                const alignClass = placement === 'end' ? 'flex w-full justify-end ' : 'flex w-full'
+                const alignClass =
+                    placement === 'end' ? 'flex w-full min-w-0 justify-end ' : 'flex w-full min-w-0'
                 const messageKey = String(m.id ?? index)
                 return (
                     <MessageRow
