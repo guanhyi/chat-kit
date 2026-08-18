@@ -13,7 +13,16 @@ import { CodeHighlight } from '@douyinfe/semi-ui'
 import 'prismjs/components/prism-mermaid.js'
 const MermaidBlock: React.FC<MermaidProps> = (props) => {
     const [isFullscreen, setIsFullscreen] = useState(false)
-    const { code, isComplete = false } = props
+    const {
+        code,
+        isComplete = false,
+        strictFlowchart,
+        downloadFileName,
+        downloadTitle,
+        nodeIds,
+        onNodeClick,
+        onRenderError
+    } = props
     const [activeSegmented, setActiveSegmented] = useState<SegmentedType>('mermaid')
     const renderGraphRef = useRef<RenderGraphRef>(null)
     const panZoomState = useMemo(() => {
@@ -36,7 +45,17 @@ const MermaidBlock: React.FC<MermaidProps> = (props) => {
                     </div>
                     <div className="m-0 overflow-auto bg-gray-50 p-3 text-xs ">
                         <div style={{ display: activeSegmented === 'mermaid' ? 'block' : 'none' }}>
-                            <RenderGraph code={code} isComplete={isComplete} ref={renderGraphRef} />
+                            <RenderGraph
+                                code={code}
+                                isComplete={isComplete}
+                                strictFlowchart={strictFlowchart}
+                                downloadFileName={downloadFileName}
+                                downloadTitle={downloadTitle}
+                                nodeIds={nodeIds}
+                                onNodeClick={onNodeClick}
+                                onRenderError={onRenderError}
+                                ref={renderGraphRef}
+                            />
                         </div>
                         <div style={{ display: activeSegmented === 'code' ? 'block' : 'none' }}>
                             <CodeHighlight

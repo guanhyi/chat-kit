@@ -34,14 +34,16 @@ class MermaidService {
 
     private async performInitialization(config?: MermaidConfig): Promise<void> {
         try {
-            if (config) {
-                mermaid.initialize(config)
-            } else {
-                mermaid.initialize({
-                    startOnLoad: false,
-                    theme: 'default'
-                })
-            }
+            mermaid.initialize({
+                ...config,
+                startOnLoad: false,
+                theme: config?.theme || 'default',
+                securityLevel: 'strict',
+                flowchart: {
+                    ...config?.flowchart,
+                    htmlLabels: false
+                }
+            })
             this.isInitialized = true
         } catch (error) {
             this.initializationPromise = null

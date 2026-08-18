@@ -43,9 +43,10 @@ const Styled = styled.div`
 export type MathEngine = 'KaTeX' | 'MathJax' | 'none'
 const mermaidConfig = {
     theme: 'default',
+    securityLevel: 'strict' as const,
     flowchart: {
         useMaxWidth: true,
-        htmlLabels: true
+        htmlLabels: false
     },
     sequence: {
         useMaxWidth: true,

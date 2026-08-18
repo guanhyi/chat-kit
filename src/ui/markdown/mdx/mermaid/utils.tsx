@@ -3,6 +3,7 @@ import rehypeParse from 'rehype-parse'
 import { Components, toJsxRuntime } from 'hast-util-to-jsx-runtime'
 import { Fragment, jsx, jsxs } from 'react/jsx-runtime'
 import Svg from './components/svg'
+import { calculateExportLayout, calcExportSize, type ExportCanvasOptions } from './exportSizing'
 
 let _mermaidId = 0
 
@@ -63,19 +64,6 @@ type ExportableSvg = {
     contentHeight: number
 }
 
-type ExportCanvasOptions = {
-    /** 背景色（默认白色） */
-    backgroundColor?: string
-    /** 内容留白，避免 stroke/阴影被裁切 */
-    padding?: number
-    /** 最小长边像素（防止导出太小导致“糊”） */
-    minLongSidePx?: number
-    /** 最大长边像素（避免 Canvas 过大） */
-    maxLongSidePx?: number
-    /** 限制总像素数，避免内存爆炸 */
-    maxTotalPixels?: number
-}
-
 function ensureSvgNamespaces(svg: SVGSVGElement) {
     if (!svg.getAttribute('xmlns')) {
         svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
@@ -114,7 +102,7 @@ function measureSvgContentBox(svg: SVGSVGElement) {
     }
 }
 
-function buildExportableSvg(svgElement: SVGElement, padding: number): ExportableSvg | null {
+function buildExportableSvg(svgElement: SVGElement, padding: number, title?: string): ExportableSvg | null {
     const svgRoot = svgElement instanceof SVGSVGElement ? svgElement : svgElement.ownerSVGElement
     if (!svgRoot) return null
 
@@ -146,48 +134,31 @@ function buildExportableSvg(svgElement: SVGElement, padding: number): Exportable
         return null
     }
 
-    const x = bbox.x - padding
-    const y = bbox.y - padding
-    const width = bbox.width + padding * 2
-    const height = bbox.height + padding * 2
+    const layout = calculateExportLayout(bbox, padding, title)
 
-    cloned.setAttribute('viewBox', `${x} ${y} ${width} ${height}`)
+    if (layout.safeTitle) {
+        const titleElement = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+        titleElement.setAttribute('x', String(layout.titleX))
+        titleElement.setAttribute('y', String(layout.titleY))
+        titleElement.setAttribute('text-anchor', 'middle')
+        titleElement.setAttribute('font-family', 'system-ui, sans-serif')
+        titleElement.setAttribute('font-size', '24')
+        titleElement.setAttribute('font-weight', '600')
+        titleElement.setAttribute('fill', '#1f2937')
+        titleElement.textContent = layout.safeTitle
+        cloned.appendChild(titleElement)
+    }
+
+    cloned.setAttribute('viewBox', `${layout.x} ${layout.y} ${layout.width} ${layout.height}`)
     cloned.setAttribute('preserveAspectRatio', 'xMidYMid meet')
 
-    return { svg: cloned, contentWidth: width, contentHeight: height }
+    return { svg: cloned, contentWidth: layout.width, contentHeight: layout.height }
 }
 
-function calcExportSize(contentWidth: number, contentHeight: number, opts: Required<ExportCanvasOptions>) {
-    const longSide = Math.max(contentWidth, contentHeight)
-    if (!Number.isFinite(longSide) || longSide <= 0) {
-        return { width: 0, height: 0 }
-    }
-
-    let scale = 1
-    if (longSide < opts.minLongSidePx) {
-        scale = opts.minLongSidePx / longSide
-    }
-    if (longSide * scale > opts.maxLongSidePx) {
-        scale = opts.maxLongSidePx / longSide
-    }
-
-    const totalPixels = contentWidth * contentHeight * scale * scale
-    if (Number.isFinite(totalPixels) && totalPixels > opts.maxTotalPixels) {
-        const areaScale = Math.sqrt(opts.maxTotalPixels / (contentWidth * contentHeight))
-        if (Number.isFinite(areaScale)) {
-            scale = Math.min(scale, areaScale)
-        }
-    }
-
-    if (!Number.isFinite(scale) || scale <= 0) scale = 1
-
-    return {
-        width: Math.max(1, Math.round(contentWidth * scale)),
-        height: Math.max(1, Math.round(contentHeight * scale))
-    }
-}
-
-async function exportSvgElementToCanvas(svgElement: SVGElement, options: ExportCanvasOptions = {}) {
+async function exportSvgElementToCanvas(
+    svgElement: SVGElement,
+    options: ExportCanvasOptions & { title?: string } = {}
+) {
     const opts: Required<ExportCanvasOptions> = {
         backgroundColor: options.backgroundColor ?? '#ffffff',
         padding: options.padding ?? 16,
@@ -203,7 +174,7 @@ async function exportSvgElementToCanvas(svgElement: SVGElement, options: ExportC
         // ignore
     }
 
-    const exportable = buildExportableSvg(svgElement, opts.padding)
+    const exportable = buildExportableSvg(svgElement, opts.padding, options.title)
     if (!exportable) {
         throw new Error('Failed to build exportable svg')
     }
@@ -239,16 +210,16 @@ async function exportSvgElementToCanvas(svgElement: SVGElement, options: ExportC
     return canvas
 }
 
-const downloadPng = async (data: { id: string }) => {
-    const { id } = data
+const downloadPng = async (data: { id: string; fileName?: string; title?: string }) => {
+    const { id, fileName, title } = data
     const svgElement = document.querySelector(id) as SVGElement | null
     if (!svgElement) return false
     try {
-        const canvas = await exportSvgElementToCanvas(svgElement)
+        const canvas = await exportSvgElementToCanvas(svgElement, { title })
         const pngData = canvas.toDataURL('image/png')
 
         const link = document.createElement('a')
-        link.download = 'image.png'
+        link.download = fileName?.trim() || '会议脑图.png'
         link.href = pngData
         link.click()
         return true
@@ -283,6 +254,6 @@ async function svgToPngAndCopy(data: { id: string }) {
     }
 }
 
-export { downloadPng, svgToPngAndCopy }
+export { downloadPng, exportSvgElementToCanvas, svgToPngAndCopy }
 
 export { getMermaidId, parseSvgToJsx }

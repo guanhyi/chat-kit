@@ -1,9 +1,14 @@
 import { useContext } from 'react'
 import GraphContext from '../../context'
 import { RenderGraphRef } from '../RenderGraph'
-import { Button, Tooltip, Divider } from '@douyinfe/semi-ui'
+import { Button, Tooltip, Divider, Toast } from '@douyinfe/semi-ui'
 import { Download, ScanEye, ZoomIn, ZoomOut } from 'lucide-react'
 import { FullscreenButton } from './FullscreenButton'
+import {
+    MINDMAP_DOWNLOAD_FAILURE_MESSAGE,
+    MINDMAP_DOWNLOAD_LABEL,
+    mindmapDownloadFailureMessage
+} from '../../downloadPolicy'
 
 interface MermaidBlockActionsProps {
     graphRef: React.RefObject<RenderGraphRef>
@@ -36,9 +41,12 @@ const MermaidBlockActions: React.FC<MermaidBlockActionsProps> = ({
     const handleDownload = async () => {
         if (graphRef.current) {
             try {
-                await graphRef.current.download()
+                const downloaded = await graphRef.current.download()
+                const errorMessage = mindmapDownloadFailureMessage(downloaded)
+                if (errorMessage) Toast.error(errorMessage)
             } catch (error) {
                 console.error('Download failed:', error)
+                Toast.error(MINDMAP_DOWNLOAD_FAILURE_MESSAGE)
             }
         }
     }
@@ -84,7 +92,7 @@ const MermaidBlockActions: React.FC<MermaidBlockActionsProps> = ({
                 theme="borderless"
             >
                 <Download size={16} />
-                下载
+                {MINDMAP_DOWNLOAD_LABEL}
             </Button>
         </>
     )

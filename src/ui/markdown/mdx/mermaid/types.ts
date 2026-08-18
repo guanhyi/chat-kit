@@ -5,7 +5,13 @@ export interface MermaidProps {
     code: string
     /** 代码是否完整（是否有结束的```标记） */
     isComplete?: boolean
-    node: any
+    node?: any
+    strictFlowchart?: boolean
+    downloadFileName?: string
+    downloadTitle?: string
+    nodeIds?: readonly string[]
+    onNodeClick?: (nodeId: string) => void
+    onRenderError?: (message: string) => void
 }
 
 export interface MermaidState {

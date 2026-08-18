@@ -8,6 +8,9 @@ export * from './adapter/useBlocksChatAdapter'
 
 // UI 组件：Markdown 渲染与块级展示
 export * from './ui/markdown/MarkdownRenderer'
+export { default as MermaidBlock } from './ui/markdown/mdx/mermaid/MermaidBlock'
+export * from './ui/markdown/mdx/mermaid/security'
+export * from './ui/markdown/mdx/mermaid/downloadPolicy'
 export { Link } from './ui/markdown/mdx/Link'
 export type { CitationProps, LinkProps } from './ui/markdown/mdx/Link'
 export * from './ui/markdown/useSmoothMarkdownStream'
