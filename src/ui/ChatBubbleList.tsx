@@ -63,10 +63,7 @@ const ChatBubbleListInner = (
                 autoHideDelay: 200
             },
             update: {
-                elementEvents: [
-                    ['img', 'load'],
-                    ['*', 'transitionstart transitionend']
-                ]
+                elementEvents: [['img', 'load']]
             }
         }
     })
