@@ -195,6 +195,18 @@ const ChatBubbleListInner = (
     }, [])
 
     const handleMessageLayoutChange = React.useCallback(() => {
+        // 拖选列表文字时不要为了贴底去 setState，避免 VList 重渲染拆掉原生选区
+        const selection = document.getSelection()
+        const root = rootRef.current
+        if (
+            selection &&
+            !selection.isCollapsed &&
+            root &&
+            ((selection.anchorNode && root.contains(selection.anchorNode)) ||
+                (selection.focusNode && root.contains(selection.focusNode)))
+        ) {
+            return
+        }
         layoutDirtyRef.current = true
         if (layoutFrameRef.current != null) {
             return

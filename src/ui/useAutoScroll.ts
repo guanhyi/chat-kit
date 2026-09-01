@@ -10,11 +10,28 @@ type Options = {
 }
 
 const USER_INTERACTION_GUARD_MS = 800
+const BOTTOM_EPSILON_PX = 2
+
+const distanceToBottom = (viewport: HTMLElement) =>
+    viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+
+const isNonCollapsedSelectionInside = (root: HTMLElement) => {
+    const selection = document.getSelection()
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return false
+    }
+    const anchor = selection.anchorNode
+    const focus = selection.focusNode
+    return Boolean(
+        (anchor && root.contains(anchor)) || (focus && root.contains(focus))
+    )
+}
 
 /**
  * 自动滚动 Hook：
  * - 仅依赖滚动事件 + MutationObserver，在「跟随模式」下保持视图贴底；
  * - 用户交互（wheel/touch/pointer/keyboard）会关闭跟随，直到再次滚动回列表底部；
+ * - 列表内存在非空文字选区时暂停跟随，避免手机拖选时系统自动滚和贴底抢滚动；
  * - 不再强依赖底部哨兵元素，避免虚拟滚动场景下哨兵被频繁卸载导致逻辑失效。
  *
  * 说明：
@@ -39,6 +56,8 @@ export function useAutoScroll(
     // 标记用户是否正在进行交互（鼠标滚轮/触摸/键盘/指针等）
     const userInteractingRef = useRef(false)
     const userInteractTimeoutRef = useRef<number | null>(null)
+    // 列表内正在拖选文字时锁定，阻止贴底把选区自动滚动拉回去
+    const selectionLockRef = useRef(false)
 
     const updateFollow = useCallback((v: boolean) => {
         followRef.current = v
@@ -47,6 +66,7 @@ export function useAutoScroll(
 
     const scrollToBottom = useCallback(
         (behavior: ScrollBehavior | 'instant' = 'instant') => {
+            if (selectionLockRef.current) return
             const viewport = getViewport()
             if (!viewport) return
             programmaticRef.current = true
@@ -62,6 +82,7 @@ export function useAutoScroll(
     )
 
     const maybeFollow = useCallback(() => {
+        if (selectionLockRef.current) return
         if (!followRef.current) return
         if (userInteractingRef.current) return
         scrollToBottom('auto')
@@ -78,18 +99,65 @@ export function useAutoScroll(
 
     const attach = useCallback(() => {
         const bindViewport = (viewport: HTMLElement) => {
+            const lockSelection = () => {
+                if (selectionLockRef.current) return
+                selectionLockRef.current = true
+                // 只改 ref：选区刚出现时 setState 会重渲染 VList，原生选区会被拆掉
+                followRef.current = false
+            }
+
+            const unlockSelection = () => {
+                if (!selectionLockRef.current) return
+                selectionLockRef.current = false
+                if (distanceToBottom(viewport) <= BOTTOM_EPSILON_PX) {
+                    updateFollow(true)
+                }
+            }
+
+            const syncSelectionLock = () => {
+                if (isNonCollapsedSelectionInside(viewport)) {
+                    lockSelection()
+                    return
+                }
+                unlockSelection()
+            }
+
+            const onSelectStart = (event: Event) => {
+                const target = event.target
+                if (target instanceof Node && viewport.contains(target)) {
+                    lockSelection()
+                }
+            }
+
+            const onSelectionChange = () => {
+                syncSelectionLock()
+            }
+
+            // iOS 长按松手后选区才出现，补一次探测，避免手柄拖动开始时贴底还没锁上
+            let selectionProbeTimer: number | null = null
+            const onTouchEnd = () => {
+                if (selectionProbeTimer != null) window.clearTimeout(selectionProbeTimer)
+                selectionProbeTimer = window.setTimeout(() => {
+                    selectionProbeTimer = null
+                    if (isNonCollapsedSelectionInside(viewport)) {
+                        lockSelection()
+                    }
+                }, 300)
+            }
+
             // 监听用户交互：非底部滚轮则关闭跟随
             const onWheel = (event: WheelEvent) => {
                 markUserInteracting()
-                const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
-                if (distance <= 2) {
+                if (selectionLockRef.current) return
+                const distance = distanceToBottom(viewport)
+                if (distance <= BOTTOM_EPSILON_PX) {
                     // 当仍处于底部且用户尝试向上滚动时立即关闭跟随，避免 MO 抢回控制权
                     if (event.deltaY < 0) {
                         updateFollow(false)
                     }
                     return
                 }
-                if (distance > 2) updateFollow(false)
+                if (distance > BOTTOM_EPSILON_PX) updateFollow(false)
             }
             viewport.addEventListener('wheel', onWheel, { passive: true })
 
@@ -110,15 +178,17 @@ export function useAutoScroll(
                 if (keys.includes(ev.key)) markUserInteracting()
             }
             viewport.addEventListener('touchstart', onTouchStart, { passive: true })
+            viewport.addEventListener('touchend', onTouchEnd, { passive: true })
             viewport.addEventListener('pointerdown', onPointerDown, { passive: true })
             window.addEventListener('pointerdown', onPointerDown, { passive: true })
             window.addEventListener('keydown', onKeyDown)
 
             // 滚动事件：当用户主动滚到底部时，立即恢复跟随
             const onScroll = () => {
+                if (selectionLockRef.current) return
                 if (programmaticRef.current) return
-                const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
-                if (distance <= 2) {
+                const distance = distanceToBottom(viewport)
+                if (distance <= BOTTOM_EPSILON_PX) {
                     updateFollow(true)
                 } else if (userInteractingRef.current) {
                     // 仅在用户交互触发的离底部滚动时，关闭跟随，避免 MO/虚拟列表引起的误判
@@ -126,10 +196,14 @@ export function useAutoScroll(
                 }
             }
             viewport.addEventListener('scroll', onScroll, { passive: true })
+            viewport.addEventListener('selectstart', onSelectStart)
+            document.addEventListener('selectionchange', onSelectionChange)
+            syncSelectionLock()
 
             // MutationObserver：内容变化时仅在跟随下贴底，并通过 microtask 合并
             moRef.current?.disconnect()
             moRef.current = new MutationObserver((records) => {
+                if (selectionLockRef.current) return
                 if (!followRef.current) return
 
                 // 关键：只修复“结束后抖动”，不影响流式贴底的平滑度
@@ -168,10 +242,9 @@ export function useAutoScroll(
                     pendingFollowModeRef.current = 'force'
 
                     if (pendingMode === 'soft') {
-                        const distance =
-                            viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+                        const distance = distanceToBottom(viewport)
                         // deadband：离底部非常近时不再重复 scrollTo，避免“最后一行来回抖”
-                        if (distance <= 2) return
+                        if (distance <= BOTTOM_EPSILON_PX) return
                     }
 
                     maybeFollow()
@@ -198,10 +271,14 @@ export function useAutoScroll(
                 moRef.current = null
                 viewport.removeEventListener('wheel', onWheel)
                 viewport.removeEventListener('touchstart', onTouchStart)
+                viewport.removeEventListener('touchend', onTouchEnd)
                 viewport.removeEventListener('pointerdown', onPointerDown)
+                if (selectionProbeTimer != null) window.clearTimeout(selectionProbeTimer)
                 window.removeEventListener('keydown', onKeyDown)
                 window.removeEventListener('pointerdown', onPointerDown)
                 viewport.removeEventListener('scroll', onScroll)
+                viewport.removeEventListener('selectstart', onSelectStart)
+                document.removeEventListener('selectionchange', onSelectionChange)
             }
         }
 
