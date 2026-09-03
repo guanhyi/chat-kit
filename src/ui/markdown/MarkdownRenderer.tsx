@@ -3,7 +3,6 @@ import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
-import rehypeMathjax from 'rehype-mathjax'
 
 import rehypeRaw from 'rehype-raw'
 import 'katex/dist/katex.min.css'
@@ -83,7 +82,7 @@ const Styled = styled.div`
     }
 `
 
-export type MathEngine = 'KaTeX' | 'MathJax' | 'none'
+export type MathEngine = 'KaTeX' | 'none'
 export type MermaidRendererProps = MermaidProps
 export type MermaidRendererComponent = React.ComponentType<MermaidRendererProps>
 
@@ -119,7 +118,7 @@ export interface MarkdownRendererProps {
 /**
  * 新版 Markdown 渲染容器
  * - 支持流式平滑渲染（配合 useSmoothMarkdownStream）
- * - 兼容 KaTeX / MathJax、脚注、原始 HTML（受控）
+ * - 支持 KaTeX、脚注、原始 HTML（受控）
  * - 不依赖业务组件库，可在多个项目中复用
  */
 export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateProps> = ({
@@ -220,7 +219,6 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
         if (allowRawSvg) list.push(rehypeRaw)
         list.push(rehypeFootnoteLinks)
         if (mathEngine === 'KaTeX') list.push(rehypeKatex)
-        if (mathEngine === 'MathJax') list.push(rehypeMathjax)
         return list
     }, [mathEngine, allowRawSvg])
 
