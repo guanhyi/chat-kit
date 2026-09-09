@@ -112,6 +112,7 @@ export interface MarkdownRendererProps {
     components?: any
     mermaidRenderer?: MermaidRendererComponent
     citationRender?: (props: CitationProps) => JSX.Element
+    /** 流式切分方式。默认 diff：只动画新增片段，避免 char 按 UTF-16 拆开 emoji */
     sep?: 'char' | 'word' | 'diff'
 }
 
@@ -134,7 +135,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
     citationRender,
     animation = animations.fadeIn,
     animationDuration = '0.5s',
-    sep = 'char',
+    sep = 'diff',
     ...rest
 }) => {
     const rawContent = content || ''

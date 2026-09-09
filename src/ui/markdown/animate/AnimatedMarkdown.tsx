@@ -15,7 +15,7 @@ export type MarkdownAnimateProps = {
 
 export const AnimatedMarkdown = ({
     content,
-    sep = 'char',
+    sep = 'diff',
     animation: animationName = undefined,
     animationDuration = '1s',
     animationTimingFunction = 'ease-in-out',
