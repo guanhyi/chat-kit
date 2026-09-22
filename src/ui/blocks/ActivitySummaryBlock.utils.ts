@@ -190,7 +190,8 @@ export const getActivitySummary = (
     const activeCitation = activityBlocks.find(
         (block) => block.type === 'citation' && block.status === 'streaming'
     )
-    const isStreaming = Boolean(activeTool || activeThinking || activeCitation)
+    // 过程块在正文开始后会被标成结束。只要整轮还在输出、最后一段正文还没开始，图标就继续转。
+    const isStreaming = Boolean(options.loading || activeTool || activeThinking || activeCitation)
     const hasDetails = activityBlocks.length > 0 || citationDocs.length > 0
 
     if (!hasDetails) {
