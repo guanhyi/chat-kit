@@ -1,19 +1,56 @@
 import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+    BOTTOM_ANCHOR_EPSILON_PX,
+    LAYOUT_SCROLL_GUARD_MS,
+    USER_SCROLL_INTENT_TTL_MS,
+    anchorActionAfterContentChange,
+    classifyScrollSource,
+    isAtBottom,
+    keyboardScrollIntent,
+    reconcileFollowingForContentAnchor,
+    resolveFollowingAfterScroll,
+    touchScrollIntent,
+    wheelScrollIntent,
+    type ScrollMetrics,
+    type UserScrollIntent
+} from './scrollAnchor'
 
 type Options = {
+    /** 离底判定容差，默认 48px */
+    bottomEpsilonPx?: number
     /**
-     * 预留的阈值配置：
-     * - 目前实现只依赖滚动距离判断是否在底部，不再强依赖 IntersectionObserver；
-     * - threshold 目前仅作为预留参数，方便后续扩展（例如按比例容忍离底部的距离）。
+     * 内容根节点。它的尺寸变化（流式长高、虚拟行测高、图片加载）会触发贴底；
+     * 缺省取 viewport 的第一个子元素。
      */
-    threshold?: number
+    getContentElement?: () => HTMLElement | null
 }
 
-const USER_INTERACTION_GUARD_MS = 800
-const BOTTOM_EPSILON_PX = 2
+/** smooth 回到底部期间的中间帧不算用户滚动 */
+const SMOOTH_SCROLL_GUARD_MS = 800
 
-const distanceToBottom = (viewport: HTMLElement) =>
-    viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+const readMetrics = (viewport: HTMLElement): ScrollMetrics => ({
+    scrollTop: viewport.scrollTop,
+    viewportHeight: viewport.clientHeight,
+    contentHeight: viewport.scrollHeight
+})
+
+const isEditableTarget = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return false
+    return (
+        target.isContentEditable ||
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT'
+    )
+}
+
+/** 原生滚动条命中 viewport 自身；OverlayScrollbars 的滚动条挂在包住 viewport 的宿主上 */
+const isScrollbarTarget = (target: EventTarget | null, viewport: HTMLElement) => {
+    if (target === viewport) return true
+    if (!(target instanceof Element)) return false
+    const scrollbar = target.closest('.os-scrollbar')
+    return Boolean(scrollbar?.parentElement?.contains(viewport))
+}
 
 const isNonCollapsedSelectionInside = (root: HTMLElement) => {
     const selection = document.getSelection()
@@ -28,330 +65,333 @@ const isNonCollapsedSelectionInside = (root: HTMLElement) => {
 }
 
 /**
- * 自动滚动 Hook：
- * - 仅依赖滚动事件 + MutationObserver，在「跟随模式」下保持视图贴底；
- * - 用户交互（wheel/touch/pointer/keyboard）会关闭跟随，直到再次滚动回列表底部；
- * - 列表内存在非空文字选区时暂停跟随，避免手机拖选时系统自动滚和贴底抢滚动；
- * - 不再强依赖底部哨兵元素，避免虚拟滚动场景下哨兵被频繁卸载导致逻辑失效。
+ * 自动滚动 Hook，判定规则见 scrollAnchor.ts：
+ * - following 表示用户的滚动权，只有真实用户输入（带方向的 wheel/touch/键盘、拖滚动条）能改变它；
+ *   程序化贴底和虚拟列表测高补偿产生的 scroll 事件只记账；
+ * - 内容区的普通点击（发送、展开块）不算滚动意图；
+ * - 贴底只有两个入口：调用方在消息提交后的 layout effect 里调 maybeFollow，
+ *   以及这里对内容根节点和 viewport 的 ResizeObserver；
+ * - 列表内存在非空文字选区时暂停跟随，避免手机拖选时系统自动滚和贴底抢滚动。
  *
- * 说明：
- * - 第二个参数 sentinelRef 现在是可选且不会参与逻辑，仅保留类型兼容；
- * - 这样 ChatBubbleList 等调用方可以移除实际 DOM 哨兵，而不影响外部 API。
+ * 第二个参数 sentinelRef 已不参与逻辑，仅为兼容旧调用签名保留。
  */
 export function useAutoScroll(
     getViewport: () => HTMLElement | null,
-    // 为兼容旧调用签名保留该参数，但当前实现不会使用
     _sentinelRef?: RefObject<HTMLElement>,
     options: Options = {}
 ) {
-    // 目前实现暂不使用 threshold，只保留为未来扩展
-    const _threshold = options.threshold
+    const epsilonPx = options.bottomEpsilonPx ?? BOTTOM_ANCHOR_EPSILON_PX
+    const getContentElementRef = useRef(options.getContentElement)
+    getContentElementRef.current = options.getContentElement
 
-    const followRef = useRef(true)
-    const [follow, setFollow] = useState(true)
-    const programmaticRef = useRef(false)
-    const moRef = useRef<MutationObserver | null>(null)
-    const followTaskPendingRef = useRef(false)
-    const pendingFollowModeRef = useRef<'force' | 'soft'>('force')
-    // 标记用户是否正在进行交互（鼠标滚轮/触摸/键盘/指针等）
-    const userInteractingRef = useRef(false)
-    const userInteractTimeoutRef = useRef<number | null>(null)
+    // 跟随态放 ref，每帧读写不触发渲染；follow state 只给外部展示用
+    const followingRef = useRef(true)
+    const publishedFollowRef = useRef(true)
+    const [follow, setFollowState] = useState(true)
+    const lastObservedScrollTopRef = useRef(0)
+    const programmaticFrameRef = useRef<number | null>(null)
+    const smoothScrollUntilRef = useRef(0)
+    const layoutGuardUntilRef = useRef(0)
+    const userScrollIntentRef = useRef<{ intent: UserScrollIntent; observedAt: number }>({
+        intent: 'none',
+        observedAt: 0
+    })
+    const touchClientYRef = useRef<number | null>(null)
+    const scrollbarPointerIdRef = useRef<number | null>(null)
     // 列表内正在拖选文字时锁定，阻止贴底把选区自动滚动拉回去
     const selectionLockRef = useRef(false)
 
-    const updateFollow = useCallback((v: boolean) => {
-        followRef.current = v
-        setFollow(v)
+    const commitFollowing = useCallback((next: boolean, silent = false) => {
+        followingRef.current = next
+        // silent 只改 ref：拖选时 setState 会重渲染 VList，原生选区会被拆掉
+        if (silent || publishedFollowRef.current === next) return
+        publishedFollowRef.current = next
+        setFollowState(next)
     }, [])
 
+    const getActiveUserScrollIntent = useCallback((): UserScrollIntent => {
+        const current = userScrollIntentRef.current
+        const interactionActive =
+            touchClientYRef.current !== null || scrollbarPointerIdRef.current !== null
+        if (interactionActive) {
+            return current.intent === 'none' ? 'unknown' : current.intent
+        }
+        return Date.now() - current.observedAt <= USER_SCROLL_INTENT_TTL_MS
+            ? current.intent
+            : 'none'
+    }, [])
+
+    const clearUserScrollIntent = useCallback(() => {
+        userScrollIntentRef.current = { intent: 'none', observedAt: 0 }
+        touchClientYRef.current = null
+        scrollbarPointerIdRef.current = null
+    }, [])
+
+    const markUserScrollIntent = useCallback(
+        (intent: UserScrollIntent) => {
+            if (intent === 'none') return
+            userScrollIntentRef.current = { intent, observedAt: Date.now() }
+            smoothScrollUntilRef.current = 0
+            const viewport = getViewport()
+            // 向上滚动必须在 scroll 事件之前先拿走滚动权，否则同帧的贴底会拿过期的
+            // following=true 把用户拽回底部
+            if (
+                intent === 'awayFromBottom' &&
+                viewport &&
+                viewport.scrollHeight > viewport.clientHeight
+            ) {
+                commitFollowing(false, selectionLockRef.current)
+            }
+        },
+        [getViewport, commitFollowing]
+    )
+
+    const markProgrammaticScroll = useCallback(() => {
+        if (programmaticFrameRef.current !== null) {
+            cancelAnimationFrame(programmaticFrameRef.current)
+        }
+        programmaticFrameRef.current = requestAnimationFrame(() => {
+            programmaticFrameRef.current = null
+        })
+    }, [])
+
+    // 贴底必须同步写 scrollTop：smooth 的中间帧会被当成离底，流式长高时也会晚一帧才到底
+    const stickToBottom = useCallback(
+        (viewport: HTMLElement) => {
+            markProgrammaticScroll()
+            viewport.scrollTop = viewport.scrollHeight
+            // 浏览器会把赋值钳到最大可滚动距离，回读真实落点入账
+            lastObservedScrollTopRef.current = viewport.scrollTop
+        },
+        [markProgrammaticScroll]
+    )
+
+    /** 内容变化（新消息 / 流式 delta / 测高修正）后调用：跟随中贴底，已解除则保持阅读位置 */
+    const maybeFollow = useCallback(() => {
+        if (selectionLockRef.current) return
+        const viewport = getViewport()
+        if (!viewport) return
+        layoutGuardUntilRef.current = Date.now() + LAYOUT_SCROLL_GUARD_MS
+        const following = reconcileFollowingForContentAnchor({
+            following: followingRef.current,
+            metrics: readMetrics(viewport),
+            lastObservedScrollTop: lastObservedScrollTopRef.current,
+            userScrollIntent: getActiveUserScrollIntent(),
+            bottomEpsilonPx: epsilonPx
+        })
+        commitFollowing(following)
+        if (anchorActionAfterContentChange(following) === 'stickToBottom') {
+            stickToBottom(viewport)
+        }
+    }, [getViewport, getActiveUserScrollIntent, commitFollowing, stickToBottom, epsilonPx])
+
+    /** 回到底部并恢复跟随：发送消息、打开会话、点「回到底部」都走这里 */
     const scrollToBottom = useCallback(
         (behavior: ScrollBehavior | 'instant' = 'instant') => {
             if (selectionLockRef.current) return
             const viewport = getViewport()
             if (!viewport) return
-            programmaticRef.current = true
-            if (behavior === 'instant' || behavior === 'auto') {
-                // 对齐 ZCode：贴底必须同步写 scrollTop。smooth 的中间帧会被当成离底，
-                // 流式长高时也会晚一帧才到底。
-                viewport.scrollTop = viewport.scrollHeight
-            } else {
-                viewport.scrollTo({ top: viewport.scrollHeight, behavior })
-            }
-            requestAnimationFrame(() => {
-                programmaticRef.current = false
-            })
-        },
-        [getViewport]
-    )
-
-    const maybeFollow = useCallback(() => {
-        if (selectionLockRef.current) return
-        if (!followRef.current) return
-        if (userInteractingRef.current) return
-        scrollToBottom('instant')
-    }, [scrollToBottom])
-
-    // 标记一次用户交互，短时间内视为“用户发起”的滚动
-    const markUserInteracting = useCallback(() => {
-        userInteractingRef.current = true
-        if (userInteractTimeoutRef.current) window.clearTimeout(userInteractTimeoutRef.current)
-        userInteractTimeoutRef.current = window.setTimeout(() => {
-            userInteractingRef.current = false
-        }, USER_INTERACTION_GUARD_MS)
-    }, [])
-
-    const attach = useCallback(() => {
-        const bindViewport = (viewport: HTMLElement) => {
-            const lockSelection = () => {
-                if (selectionLockRef.current) return
-                selectionLockRef.current = true
-                // 只改 ref：选区刚出现时 setState 会重渲染 VList，原生选区会被拆掉
-                followRef.current = false
-            }
-
-            const unlockSelection = () => {
-                if (!selectionLockRef.current) return
-                selectionLockRef.current = false
-                if (distanceToBottom(viewport) <= BOTTOM_EPSILON_PX) {
-                    updateFollow(true)
-                }
-            }
-
-            const syncSelectionLock = () => {
-                if (isNonCollapsedSelectionInside(viewport)) {
-                    lockSelection()
-                    return
-                }
-                unlockSelection()
-            }
-
-            const onSelectStart = (event: Event) => {
-                const target = event.target
-                if (target instanceof Node && viewport.contains(target)) {
-                    lockSelection()
-                }
-            }
-
-            const onSelectionChange = () => {
-                syncSelectionLock()
-            }
-
-            // iOS 长按松手后选区才出现，补一次探测，避免手柄拖动开始时贴底还没锁上
-            let selectionProbeTimer: number | null = null
-            const onTouchEnd = () => {
-                if (selectionProbeTimer != null) window.clearTimeout(selectionProbeTimer)
-                selectionProbeTimer = window.setTimeout(() => {
-                    selectionProbeTimer = null
-                    if (isNonCollapsedSelectionInside(viewport)) {
-                        lockSelection()
-                    }
-                }, 300)
-            }
-
-            // 监听用户交互：非底部滚轮则关闭跟随
-            const onWheel = (event: WheelEvent) => {
-                markUserInteracting()
-                if (selectionLockRef.current) return
-                const distance = distanceToBottom(viewport)
-                if (distance <= BOTTOM_EPSILON_PX) {
-                    // 当仍处于底部且用户尝试向上滚动时立即关闭跟随，避免 MO 抢回控制权
-                    if (event.deltaY < 0) {
-                        updateFollow(false)
-                    }
-                    return
-                }
-                if (distance > BOTTOM_EPSILON_PX) updateFollow(false)
-            }
-            viewport.addEventListener('wheel', onWheel, { passive: true })
-
-            // 触摸/指针/键盘：均视为用户交互
-            const onTouchStart = () => markUserInteracting()
-            const onPointerDown = () => markUserInteracting()
-            const onKeyDown = (ev: KeyboardEvent) => {
-                // 常见滚动相关按键
-                const keys = [
-                    'ArrowUp',
-                    'ArrowDown',
-                    'PageUp',
-                    'PageDown',
-                    'Home',
-                    'End',
-                    'Space'
-                ]
-                if (keys.includes(ev.key)) markUserInteracting()
-            }
-            viewport.addEventListener('touchstart', onTouchStart, { passive: true })
-            viewport.addEventListener('touchend', onTouchEnd, { passive: true })
-            viewport.addEventListener('pointerdown', onPointerDown, { passive: true })
-            window.addEventListener('pointerdown', onPointerDown, { passive: true })
-            window.addEventListener('keydown', onKeyDown)
-
-            // 滚动事件：当用户主动滚到底部时，立即恢复跟随
-            const onScroll = () => {
-                if (selectionLockRef.current) return
-                if (programmaticRef.current) return
-                const distance = distanceToBottom(viewport)
-                if (distance <= BOTTOM_EPSILON_PX) {
-                    updateFollow(true)
-                } else if (userInteractingRef.current) {
-                    // 仅在用户交互触发的离底部滚动时，关闭跟随，避免 MO/虚拟列表引起的误判
-                    updateFollow(false)
-                }
-            }
-            viewport.addEventListener('scroll', onScroll, { passive: true })
-            viewport.addEventListener('selectstart', onSelectStart)
-            document.addEventListener('selectionchange', onSelectionChange)
-            syncSelectionLock()
-
-            // MutationObserver：内容变化时仅在跟随下贴底，并通过 microtask 合并
-            moRef.current?.disconnect()
-            moRef.current = new MutationObserver((records) => {
-                if (selectionLockRef.current) return
-                if (!followRef.current) return
-
-                // 关键：只修复“结束后抖动”，不影响流式贴底的平滑度
-                //
-                // - 流式正文更新：通常会产生 childList/characterData 变更，需要强制贴底（force）
-                // - 虚拟列表测量/定位：会产生子元素 style 变更，允许贴底，但在离底部 <= 2px 时不再反复 scrollTo（soft）
-                // - OverlayScrollbars：会持续改动 viewport 自身 style（例如自动隐藏/变量刷新），这类变更不应触发贴底，否则会形成回环抖动
-                const hasContentMutation = records.some(
-                    (record) => record.type === 'childList' || record.type === 'characterData'
-                )
-                const hasNonViewportStyleMutation = records.some(
-                    (record) =>
-                        record.type === 'attributes' &&
-                        record.attributeName === 'style' &&
-                        record.target !== viewport
-                )
-
-                if (!hasContentMutation && !hasNonViewportStyleMutation) {
-                    return
-                }
-
-                const mode: 'force' | 'soft' = hasContentMutation ? 'force' : 'soft'
-
-                if (followTaskPendingRef.current) {
-                    // 若同一轮里先收到 style 变更、后收到内容变更，升级为 force，避免流式变卡
-                    if (mode === 'force') pendingFollowModeRef.current = 'force'
-                    return
-                }
-
-                followTaskPendingRef.current = true
-                pendingFollowModeRef.current = mode
-
-                const flush = () => {
-                    followTaskPendingRef.current = false
-                    const pendingMode = pendingFollowModeRef.current
-                    pendingFollowModeRef.current = 'force'
-
-                    if (pendingMode === 'soft') {
-                        const distance = distanceToBottom(viewport)
-                        // deadband：离底部非常近时不再重复 scrollTo，避免“最后一行来回抖”
-                        if (distance <= BOTTOM_EPSILON_PX) return
-                    }
-
-                    maybeFollow()
-                }
-
-                if (typeof queueMicrotask === 'function') {
-                    queueMicrotask(flush)
-                } else if (typeof Promise !== 'undefined') {
-                    Promise.resolve().then(flush)
-                } else {
-                    setTimeout(flush, 0)
-                }
-            })
-            moRef.current.observe(viewport, {
-                subtree: true,
-                childList: true,
-                characterData: true,
-                attributes: true,
-                attributeFilter: ['style']
-            })
-
-            return () => {
-                moRef.current?.disconnect()
-                moRef.current = null
-                viewport.removeEventListener('wheel', onWheel)
-                viewport.removeEventListener('touchstart', onTouchStart)
-                viewport.removeEventListener('touchend', onTouchEnd)
-                viewport.removeEventListener('pointerdown', onPointerDown)
-                if (selectionProbeTimer != null) window.clearTimeout(selectionProbeTimer)
-                window.removeEventListener('keydown', onKeyDown)
-                window.removeEventListener('pointerdown', onPointerDown)
-                viewport.removeEventListener('scroll', onScroll)
-                viewport.removeEventListener('selectstart', onSelectStart)
-                document.removeEventListener('selectionchange', onSelectionChange)
-            }
-        }
-
-        let destroyed = false
-        let cleanup: (() => void) | null = null
-        let currentViewport: HTMLElement | null = null
-        let rafId: number | null = null
-        let sameViewportFrames = 0
-
-        const syncViewport = () => {
-            if (destroyed) return
-            const nextViewport = getViewport()
-            if (nextViewport !== currentViewport) {
-                sameViewportFrames = 0
-                cleanup?.()
-                currentViewport = nextViewport ?? null
-                if (nextViewport) {
-                    cleanup = bindViewport(nextViewport)
-                } else {
-                    cleanup = null
-                }
-            } else if (currentViewport) {
-                sameViewportFrames += 1
-            }
-
-            if (!currentViewport || sameViewportFrames < 60) {
-                rafId = window.requestAnimationFrame(syncViewport)
-            } else if (rafId !== null) {
-                window.cancelAnimationFrame(rafId)
-                rafId = null
-            }
-        }
-
-        syncViewport()
-
-        const intervalId = window.setInterval(() => {
-            if (destroyed) return
-            if (!currentViewport || !currentViewport.isConnected) {
-                sameViewportFrames = 0
-                syncViewport()
+            clearUserScrollIntent()
+            commitFollowing(true)
+            if (behavior === 'smooth') {
+                smoothScrollUntilRef.current = Date.now() + SMOOTH_SCROLL_GUARD_MS
+                viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' })
                 return
             }
-            const nextViewport = getViewport()
-            if (nextViewport !== currentViewport) {
-                sameViewportFrames = 0
-                syncViewport()
+            stickToBottom(viewport)
+        },
+        [getViewport, clearUserScrollIntent, commitFollowing, stickToBottom]
+    )
+
+    const attach = useCallback(() => {
+        const viewport = getViewport()
+        if (!viewport) return () => {}
+        lastObservedScrollTopRef.current = viewport.scrollTop
+
+        const lockSelection = () => {
+            if (selectionLockRef.current) return
+            selectionLockRef.current = true
+            commitFollowing(false, true)
+        }
+
+        const unlockSelection = () => {
+            if (!selectionLockRef.current) return
+            selectionLockRef.current = false
+            lastObservedScrollTopRef.current = viewport.scrollTop
+            commitFollowing(isAtBottom(readMetrics(viewport), epsilonPx))
+        }
+
+        const syncSelectionLock = () => {
+            if (isNonCollapsedSelectionInside(viewport)) {
+                lockSelection()
+                return
             }
-        }, 500)
+            unlockSelection()
+        }
+
+        const onSelectStart = (event: Event) => {
+            const target = event.target
+            if (target instanceof Node && viewport.contains(target)) {
+                lockSelection()
+            }
+        }
+
+        const onWheel = (event: WheelEvent) => {
+            markUserScrollIntent(wheelScrollIntent(event.deltaY))
+        }
+
+        const onTouchStart = (event: TouchEvent) => {
+            touchClientYRef.current = event.touches[0]?.clientY ?? null
+        }
+
+        const onTouchMove = (event: TouchEvent) => {
+            const nextClientY = event.touches[0]?.clientY
+            const previousClientY = touchClientYRef.current
+            if (nextClientY === undefined || previousClientY === null) return
+            markUserScrollIntent(touchScrollIntent(previousClientY, nextClientY))
+            touchClientYRef.current = nextClientY
+        }
+
+        // iOS 长按松手后选区才出现，补一次探测，避免手柄拖动开始时贴底还没锁上
+        let selectionProbeTimer: number | null = null
+        const onTouchEnd = () => {
+            touchClientYRef.current = null
+            if (selectionProbeTimer != null) window.clearTimeout(selectionProbeTimer)
+            selectionProbeTimer = window.setTimeout(() => {
+                selectionProbeTimer = null
+                if (isNonCollapsedSelectionInside(viewport)) {
+                    lockSelection()
+                }
+            }, 300)
+        }
+
+        const onKeyDown = (event: KeyboardEvent) => {
+            // 焦点在列表内或落在 body（点过列表正文）时，方向键滚动的就是这个列表
+            const target = event.target
+            const inList =
+                target === document.body ||
+                target === document.documentElement ||
+                (target instanceof Node && viewport.contains(target))
+            if (!inList) return
+            markUserScrollIntent(
+                keyboardScrollIntent({
+                    key: event.key,
+                    shiftKey: event.shiftKey,
+                    editableTarget: isEditableTarget(target)
+                })
+            )
+        }
+
+        // 内容区点击（尤其是发送、展开块）不是滚动意图；只有命中滚动条才登记未知方向，
+        // 随后由真实 scroll 落点裁决
+        const onPointerDown = (event: PointerEvent) => {
+            if (!isScrollbarTarget(event.target, viewport)) return
+            scrollbarPointerIdRef.current = event.pointerId
+            markUserScrollIntent('unknown')
+        }
+
+        const onPointerEnd = (event: PointerEvent) => {
+            if (scrollbarPointerIdRef.current === event.pointerId) {
+                scrollbarPointerIdRef.current = null
+            }
+        }
+
+        const onScroll = () => {
+            const scrollTop = viewport.scrollTop
+            if (selectionLockRef.current) {
+                lastObservedScrollTopRef.current = scrollTop
+                return
+            }
+            const now = Date.now()
+            const programmatic =
+                (programmaticFrameRef.current !== null &&
+                    Math.abs(scrollTop - lastObservedScrollTopRef.current) < 1) ||
+                now < smoothScrollUntilRef.current
+            const source = classifyScrollSource({
+                userScrollIntent: getActiveUserScrollIntent(),
+                programmatic,
+                withinLayoutGuard: now <= layoutGuardUntilRef.current
+            })
+            lastObservedScrollTopRef.current = scrollTop
+            commitFollowing(
+                resolveFollowingAfterScroll({
+                    following: followingRef.current,
+                    metrics: readMetrics(viewport),
+                    source,
+                    epsilonPx
+                })
+            )
+        }
+
+        // 不经过 React 提交的长高（虚拟行测高、图片/Mermaid 加载、输入框挤压 viewport）
+        // 由 ResizeObserver 接住。回调在布局后、绘制前执行，贴底不会先闪一帧。
+        let resizeObserver: ResizeObserver | null = null
+        if (typeof ResizeObserver !== 'undefined') {
+            const observedHeights = new Map<Element, number>()
+            resizeObserver = new ResizeObserver((entries) => {
+                let changed = false
+                for (const entry of entries) {
+                    const height = entry.contentRect.height
+                    if (observedHeights.get(entry.target) !== height) {
+                        observedHeights.set(entry.target, height)
+                        changed = true
+                    }
+                }
+                if (changed) maybeFollow()
+            })
+            resizeObserver.observe(viewport)
+            const content = getContentElementRef.current?.() ?? viewport.firstElementChild
+            if (content) resizeObserver.observe(content)
+        }
+
+        viewport.addEventListener('wheel', onWheel, { capture: true, passive: true })
+        viewport.addEventListener('touchstart', onTouchStart, { capture: true, passive: true })
+        viewport.addEventListener('touchmove', onTouchMove, { capture: true, passive: true })
+        viewport.addEventListener('touchend', onTouchEnd, { capture: true, passive: true })
+        viewport.addEventListener('touchcancel', onTouchEnd, { capture: true, passive: true })
+        viewport.addEventListener('scroll', onScroll, { passive: true })
+        viewport.addEventListener('selectstart', onSelectStart)
+        window.addEventListener('keydown', onKeyDown, true)
+        window.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true })
+        window.addEventListener('pointerup', onPointerEnd, true)
+        window.addEventListener('pointercancel', onPointerEnd, true)
+        document.addEventListener('selectionchange', syncSelectionLock)
+        syncSelectionLock()
 
         return () => {
-            destroyed = true
-            if (rafId !== null) {
-                window.cancelAnimationFrame(rafId)
-                rafId = null
-            }
-            window.clearInterval(intervalId)
-            cleanup?.()
-            cleanup = null
-            currentViewport = null
-            if (userInteractTimeoutRef.current) window.clearTimeout(userInteractTimeoutRef.current)
-            userInteractTimeoutRef.current = null
+            resizeObserver?.disconnect()
+            if (selectionProbeTimer != null) window.clearTimeout(selectionProbeTimer)
+            viewport.removeEventListener('wheel', onWheel, true)
+            viewport.removeEventListener('touchstart', onTouchStart, true)
+            viewport.removeEventListener('touchmove', onTouchMove, true)
+            viewport.removeEventListener('touchend', onTouchEnd, true)
+            viewport.removeEventListener('touchcancel', onTouchEnd, true)
+            viewport.removeEventListener('scroll', onScroll)
+            viewport.removeEventListener('selectstart', onSelectStart)
+            window.removeEventListener('keydown', onKeyDown, true)
+            window.removeEventListener('pointerdown', onPointerDown, true)
+            window.removeEventListener('pointerup', onPointerEnd, true)
+            window.removeEventListener('pointercancel', onPointerEnd, true)
+            document.removeEventListener('selectionchange', syncSelectionLock)
         }
-    }, [getViewport, updateFollow, maybeFollow, markUserInteracting])
+    }, [
+        getViewport,
+        commitFollowing,
+        markUserScrollIntent,
+        getActiveUserScrollIntent,
+        maybeFollow,
+        epsilonPx
+    ])
 
     useEffect(() => {
-        // 兜底清理 MO，防止调用方忘记执行 detach
         return () => {
-            moRef.current?.disconnect()
+            if (programmaticFrameRef.current !== null) {
+                cancelAnimationFrame(programmaticFrameRef.current)
+            }
         }
     }, [])
+
+    const setFollow = useCallback((v: boolean) => commitFollowing(v), [commitFollowing])
 
     return useMemo(
         () => ({
@@ -359,10 +399,10 @@ export function useAutoScroll(
             attach,
             scrollToBottom,
             maybeFollow,
-            setFollow: updateFollow,
-            isFollowing: () => followRef.current && !selectionLockRef.current
+            setFollow,
+            isFollowing: () => followingRef.current && !selectionLockRef.current
         }),
-        [follow, attach, scrollToBottom, maybeFollow, updateFollow]
+        [follow, attach, scrollToBottom, maybeFollow, setFollow]
     )
 }
 

@@ -3,7 +3,6 @@ import { useOverlayScrollbars } from 'overlayscrollbars-react'
 import { Virtualizer } from 'virtua'
 import type { VListHandle } from 'virtua'
 import type { ChatBubbleListProps, ChatBubbleListRef, BaseMessage } from '../types'
-import { MessageRow } from './MessageRow'
 import { useAutoScroll } from './useAutoScroll'
 
 type ChatBubbleListComponent = <TMessage extends BaseMessage = BaseMessage>(
@@ -26,8 +25,8 @@ function isStreamingMessage(message: BaseMessage | undefined): boolean {
  * - 内置自动滚动能力；
  * - 不依赖项目内的任何 UI 库，方便跨项目复用。
  *
- * 这一版本回到「VList + OverlayScrollbars + 哨兵在 VList 内」的结构，
- * 保持与最初接入时一致的 DOM 形态，避免样式与布局被破坏。
+ * 滚动结构：OverlayScrollbars 包住自持的滚动容器 scrollRef，Virtualizer 和流式尾条
+ * 都在这个容器里。贴底规则见 useAutoScroll / scrollAnchor。
  */
 const ChatBubbleListInner = (
     props: ChatBubbleListProps<BaseMessage>,
@@ -48,15 +47,13 @@ const ChatBubbleListInner = (
 
     const rootRef = useRef<HTMLDivElement | null>(null)
     const scrollRef = useRef<HTMLDivElement | null>(null)
+    const contentRef = useRef<HTMLDivElement | null>(null)
     const vListRef = useRef<VListHandle | null>(null)
-    const layoutFrameRef = useRef<number | null>(null)
-    const layoutDirtyRef = useRef(false)
     const onScrollRef = useRef(onScroll)
-    const [layoutTick, setLayoutTick] = React.useState(0)
 
     onScrollRef.current = onScroll
 
-    const [initialize, instance] = useOverlayScrollbars({
+    const [initialize] = useOverlayScrollbars({
         defer: true,
         events: {
             initialized(osInstance) {
@@ -77,18 +74,9 @@ const ChatBubbleListInner = (
         }
     })
 
-    const getScrollViewport = React.useCallback((): HTMLElement | null => {
-        const osInstance = instance()
-        if (osInstance) {
-            return osInstance.elements().viewport as HTMLElement
-        }
-        const root = rootRef.current
-        const child = root?.firstElementChild
-        if (child instanceof HTMLElement && child.scrollHeight > child.clientHeight) {
-            return child
-        }
-        return root
-    }, [instance])
+    // OverlayScrollbars 直接把 scrollRef 当 viewport，不会替换它，初始化前后都读这一个元素
+    const getScrollViewport = React.useCallback((): HTMLElement | null => scrollRef.current, [])
+    const getContentElement = React.useCallback((): HTMLElement | null => contentRef.current, [])
 
     const emitScroll = React.useCallback(() => {
         const cb = onScrollRef.current
@@ -97,13 +85,7 @@ const ChatBubbleListInner = (
         cb(viewport?.scrollTop ?? vListRef.current?.scrollOffset ?? 0)
     }, [getScrollViewport])
 
-    const autoScrollCtrl = useAutoScroll(
-        getScrollViewport,
-        // 第二个参数为哨兵 Ref，当前实现已不再依赖实际 DOM 哨兵，这里传入 undefined 占位。
-        undefined,
-        // 阈值目前仅作为预留配置，语义保持与 useCherryScroll 的 threshold 一致
-        { threshold: 0.99 }
-    )
+    const autoScrollCtrl = useAutoScroll(getScrollViewport, undefined, { getContentElement })
 
     // 对外暴露 ref 能力：nativeElement / getViewport 实时读取，避免初始化时机问题
     React.useImperativeHandle(
@@ -182,70 +164,12 @@ const ChatBubbleListInner = (
         }
     }, [autoScroll, autoScrollCtrl.attach])
 
-    // 发送和流式长高都在绘制前贴底。useEffect 要等绘制后才滚，用户会先看到内容停在半截。
-    // 发送当帧 OverlayScrollbars 可能还没绑上，直接写当前可滚动容器，不等 attach。
+    // 贴底入口一：消息提交（发送、流式 delta）后在绘制前对账并贴底。
+    // 入口二是 useAutoScroll 里的 ResizeObserver，接住虚拟行测高、图片加载这类不经过 React 提交的长高。
     useLayoutEffect(() => {
-        if (!autoScroll || !autoScrollCtrl.isFollowing()) return
-        const viewport = getScrollViewport()
-        if (!viewport) return
-        viewport.scrollTop = viewport.scrollHeight
-    })
-
-    // 消息变更时尝试跟随：只在消息数量增加时触发，避免纯状态更新也强制贴底
-    const prevLenRef = useRef<number>(messages.length)
-    useEffect(() => {
-        if (!autoScroll) {
-            prevLenRef.current = messages.length
-            return
-        }
-        const prevLen = prevLenRef.current
-        prevLenRef.current = messages.length
-        if (messages.length > prevLen) {
-            autoScrollCtrl.maybeFollow()
-        }
-    }, [messages.length, autoScroll, autoScrollCtrl.maybeFollow])
-
-    useEffect(() => {
-        return () => {
-            if (layoutFrameRef.current != null) {
-                cancelAnimationFrame(layoutFrameRef.current)
-            }
-        }
-    }, [])
-
-    const handleMessageLayoutChange = React.useCallback(() => {
-        // 拖选列表文字时不要为了贴底去 setState，避免 VList 重渲染拆掉原生选区
-        const selection = document.getSelection()
-        const root = rootRef.current
-        if (
-            selection &&
-            !selection.isCollapsed &&
-            root &&
-            ((selection.anchorNode && root.contains(selection.anchorNode)) ||
-                (selection.focusNode && root.contains(selection.focusNode)))
-        ) {
-            return
-        }
-        layoutDirtyRef.current = true
-        if (layoutFrameRef.current != null) {
-            return
-        }
-        layoutFrameRef.current = requestAnimationFrame(() => {
-            layoutFrameRef.current = null
-            if (!layoutDirtyRef.current) {
-                return
-            }
-            layoutDirtyRef.current = false
-            setLayoutTick((tick) => tick + 1)
-        })
-    }, [])
-
-    useEffect(() => {
-        if (!autoScroll) {
-            return
-        }
+        if (!autoScroll) return
         autoScrollCtrl.maybeFollow()
-    }, [layoutTick, autoScroll, autoScrollCtrl.maybeFollow])
+    }, [messages, safeBottom, autoScroll, autoScrollCtrl.maybeFollow])
 
     // 正在长的最后一条不进 VList。虚拟行先长高、下一帧才改 scrollTop，轮尾会跳。
     // 它结束后再收进虚拟列表。滚动恢复只针对 VList，tail 高度不参与那次计算。
@@ -262,20 +186,19 @@ const ChatBubbleListInner = (
             placement === 'end' ? 'flex w-full min-w-0 justify-end ' : 'flex w-full min-w-0'
         const messageKey = String(message.id ?? index)
         return (
-            <MessageRow
+            <div
                 key={messageKey}
-                messageKey={messageKey}
                 className={alignClass + ' ' + (bubbleClassName || '')}
-                onLayoutChange={handleMessageLayoutChange}
+                style={{ minWidth: 0, width: '100%' }}
             >
                 {roleConfig.render({ message, index })}
-            </MessageRow>
+            </div>
         )
     }
 
     const content = (
         <div ref={scrollRef} className="h-full w-full" style={{ overflowY: 'auto', height: '100%' }}>
-            <div className="flex w-full flex-col items-center">
+            <div ref={contentRef} className="flex w-full flex-col items-center">
                 <Virtualizer
                     ref={vListRef}
                     scrollRef={scrollRef}
