@@ -28,7 +28,6 @@ import styled, { keyframes } from 'styled-components'
 import { cjk } from './plugins/cjk'
 import { ftAnimateStyles } from './animate/styles'
 import { AnimatedMarkdown, MarkdownAnimateProps } from './animate/AnimatedMarkdown'
-import { animations } from './animate/utils'
 
 const streamdownCaretBlink = keyframes`
     0%, 49% {
@@ -133,8 +132,9 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
     components,
     mermaidRenderer,
     citationRender,
-    animation = animations.fadeIn,
-    animationDuration = '0.5s',
+    // 默认不做入场动画。虚拟列表回收再挂上时，fadeIn 会让已出现的正文整段重闪。
+    animation = undefined,
+    animationDuration = '0s',
     sep = 'diff',
     ...rest
 }) => {
@@ -147,16 +147,10 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
     const [displayed, setDisplayed] = useState(processedContent)
     const prevContentRef = useRef(rawContent)
     const prevStatusRef = useRef(status)
-    const statusRef = useRef(status)
-
-    // 用 ref 承接最新 status，避免流结束后仍有 rAF 回调触发 setState 导致尾段反复渲染
-    useEffect(() => {
-        statusRef.current = status
-    }, [status])
 
     const onSmoothUpdate = useCallback(
         (text: string) => {
-            if (statusRef.current !== 'streaming') return
+            // 流结束后仍要接着吐完积压的字，不能在这里把回调丢掉。
             setDisplayed(postProcess ? postProcess(text) : text)
         },
         [postProcess]
@@ -173,9 +167,15 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
         const oldContent = prevContentRef.current
         const prevStatus = prevStatusRef.current
 
-        // 非 streaming：复位内部队列并停止 rAF（渲染直接使用 processedContent，避免尾段被反复触发）
+        // 刚从流式切到完成：不要整段替换。队列里还没吐完的字继续按结束加速补完。
         if (status !== 'streaming') {
-            reset(newContent)
+            if (prevStatus === 'streaming' && newContent.startsWith(prevContentRef.current)) {
+                const delta = newContent.substring(prevContentRef.current.length)
+                if (delta) addChunk(delta)
+            } else if (newContent !== prevContentRef.current) {
+                reset(newContent)
+                setDisplayed(processedContent)
+            }
             prevContentRef.current = newContent
             prevStatusRef.current = status
             return
@@ -223,7 +223,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
         return list
     }, [mathEngine, allowRawSvg])
 
-    const renderText = status === 'streaming' ? remend(displayed) : processedContent
+    const catchingUp = status !== 'streaming' && displayed !== processedContent
+    const renderText = status === 'streaming' || catchingUp ? remend(displayed) : processedContent
     const messageContent = useMemo(() => {
         return citations ? transformCitations(renderText, citations) : renderText
     }, [renderText, citations, citations?.length])
@@ -319,13 +320,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
                 <AnimatedMarkdown
                     sep={sep}
                     {...rest}
-                    {...(status === 'streaming'
-                        ? { animation: animation, animationDuration: animationDuration }
-                        : {
-                              animation: undefined,
-                              animationDuration: '0s'
-                          })}
-                    // animation={status !== 'streaming' ? undefined : 'ft-fadeIn'}
+                    animation={animation}
+                    animationDuration={animation ? animationDuration : '0s'}
                     content={messageContent}
                     remarkPlugins={remarkPlugins}
                     rehypePlugins={rehypePlugins}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useLayoutEffect, useRef } from 'react'
 import { useOverlayScrollbars } from 'overlayscrollbars-react'
 import { VList } from 'virtua'
 import type { VListHandle } from 'virtua'
@@ -11,6 +11,14 @@ type ChatBubbleListComponent = <TMessage extends BaseMessage = BaseMessage>(
 ) => React.ReactElement | null
 
 const CHAT_VIRTUAL_BUFFER_SIZE = 2400
+
+function isStreamingMessage(message: BaseMessage | undefined): boolean {
+    if (!message) return false
+    if (message.loading) return true
+    if (message.role === 'loading') return true
+    const blocks = message.blocks
+    return Array.isArray(blocks) && blocks.some((block) => block?.status === 'streaming')
+}
 
 /**
  * 基础气泡列表组件：
@@ -74,8 +82,9 @@ const ChatBubbleListInner = (
             return osInstance.elements().viewport as HTMLElement
         }
         const root = rootRef.current
-        if (root?.firstElementChild instanceof HTMLElement) {
-            return root.firstElementChild
+        const child = root?.firstElementChild
+        if (child instanceof HTMLElement && child.scrollHeight > child.clientHeight) {
+            return child
         }
         return root
     }, [instance])
@@ -172,6 +181,15 @@ const ChatBubbleListInner = (
         }
     }, [autoScroll, autoScrollCtrl.attach])
 
+    // 发送和流式长高都在绘制前贴底。useEffect 要等绘制后才滚，用户会先看到内容停在半截。
+    // 发送当帧 OverlayScrollbars 可能还没绑上，直接写当前可滚动容器，不等 attach。
+    useLayoutEffect(() => {
+        if (!autoScroll || !autoScrollCtrl.isFollowing()) return
+        const viewport = getScrollViewport()
+        if (!viewport) return
+        viewport.scrollTop = viewport.scrollHeight
+    })
+
     // 消息变更时尝试跟随：只在消息数量增加时触发，避免纯状态更新也强制贴底
     const prevLenRef = useRef<number>(messages.length)
     useEffect(() => {
@@ -228,6 +246,32 @@ const ChatBubbleListInner = (
         autoScrollCtrl.maybeFollow()
     }, [layoutTick, autoScroll, autoScrollCtrl.maybeFollow])
 
+    // 正在长的最后一条不进 VList。虚拟行先长高、下一帧才改 scrollTop，轮尾会跳。
+    // 它结束后再收进虚拟列表。滚动恢复只针对 VList，tail 高度不参与那次计算。
+    const liveIndex = messages.length - 1
+    const liveMessage = messages[liveIndex]
+    const hasLiveTail = isStreamingMessage(liveMessage)
+    const virtualMessages = hasLiveTail ? messages.slice(0, liveIndex) : messages
+
+    const renderMessage = (message: BaseMessage, index: number) => {
+        const roleConfig = roles[message.role]
+        if (!roleConfig) return null
+        const placement = roleConfig.placement || 'start'
+        const alignClass =
+            placement === 'end' ? 'flex w-full min-w-0 justify-end ' : 'flex w-full min-w-0'
+        const messageKey = String(message.id ?? index)
+        return (
+            <MessageRow
+                key={messageKey}
+                messageKey={messageKey}
+                className={alignClass + ' ' + (bubbleClassName || '')}
+                onLayoutChange={handleMessageLayoutChange}
+            >
+                {roleConfig.render({ message, index })}
+            </MessageRow>
+        )
+    }
+
     const content = (
         <VList
             ref={vListRef}
@@ -235,25 +279,8 @@ const ChatBubbleListInner = (
             style={{ height: '100%', width: '100%' }}
             onScroll={emitScroll}
         >
-            {messages.map((m, index) => {
-                const roleConfig = roles[m.role]
-                if (!roleConfig) return null
-                const placement = roleConfig.placement || 'start'
-                const alignClass =
-                    placement === 'end' ? 'flex w-full min-w-0 justify-end ' : 'flex w-full min-w-0'
-                const messageKey = String(m.id ?? index)
-                return (
-                    <MessageRow
-                        key={messageKey}
-                        messageKey={messageKey}
-                        className={alignClass + ' ' + (bubbleClassName || '')}
-                        onLayoutChange={handleMessageLayoutChange}
-                    >
-                        {roleConfig.render({ message: m, index })}
-                    </MessageRow>
-                )
-            })}
-            {/* 安全底部间距，避免输入框遮挡 */}
+            {virtualMessages.map((message, index) => renderMessage(message, index))}
+            {hasLiveTail ? renderMessage(liveMessage as BaseMessage, liveIndex) : null}
             {safeBottom > 0 && <div style={{ height: safeBottom }} />}
         </VList>
     )

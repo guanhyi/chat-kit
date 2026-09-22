@@ -70,10 +70,13 @@ export function useAutoScroll(
             const viewport = getViewport()
             if (!viewport) return
             programmaticRef.current = true
-            const bh: ScrollBehavior =
-                behavior === 'instant' ? ('auto' as ScrollBehavior) : behavior
-            viewport.scrollTo({ top: viewport.scrollHeight, behavior: bh })
-            // 短暂释放 programmatic 标记，允许用户接管
+            if (behavior === 'instant' || behavior === 'auto') {
+                // 对齐 ZCode：贴底必须同步写 scrollTop。smooth 的中间帧会被当成离底，
+                // 流式长高时也会晚一帧才到底。
+                viewport.scrollTop = viewport.scrollHeight
+            } else {
+                viewport.scrollTo({ top: viewport.scrollHeight, behavior })
+            }
             requestAnimationFrame(() => {
                 programmaticRef.current = false
             })
@@ -85,7 +88,7 @@ export function useAutoScroll(
         if (selectionLockRef.current) return
         if (!followRef.current) return
         if (userInteractingRef.current) return
-        scrollToBottom('auto')
+        scrollToBottom('instant')
     }, [scrollToBottom])
 
     // 标记一次用户交互，短时间内视为“用户发起”的滚动
@@ -351,7 +354,14 @@ export function useAutoScroll(
     }, [])
 
     return useMemo(
-        () => ({ follow, attach, scrollToBottom, maybeFollow, setFollow: updateFollow }),
+        () => ({
+            follow,
+            attach,
+            scrollToBottom,
+            maybeFollow,
+            setFollow: updateFollow,
+            isFollowing: () => followRef.current && !selectionLockRef.current
+        }),
         [follow, attach, scrollToBottom, maybeFollow, updateFollow]
     )
 }

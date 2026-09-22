@@ -22,6 +22,8 @@ export * from './ui/blocks/ThinkingBlock'
 export * from './ui/blocks/ToolBlock'
 export * from './ui/blocks/CitationBlock'
 export * from './ui/blocks/ActivitySummaryBlock'
+export * from './ui/blocks/blockRenderers.tsx'
+export * from './ui/blocks/splitMessageBlocks'
 
 export * from './md-to-doc/MdToDoc'
 

@@ -63,10 +63,11 @@ export function useSmoothMarkdownStream(options: {
         }
         lastUpdateRef.current = ts
 
-        // 动态批量合并（流结束时一次性输出）
+        // 流进行中保持原来的速度。流已经结束后，积压的字按更大的批次尽快补完，
+        // 不再一帧倒空，避免正文整段闪出来。
         const done = streamDoneRef.current
         const count = done
-            ? queueRef.current.length
+            ? Math.max(8, Math.ceil(queueRef.current.length / 4))
             : Math.max(1, Math.floor(queueRef.current.length / 5))
         const slice = queueRef.current.slice(0, count)
         queueRef.current = queueRef.current.slice(count)

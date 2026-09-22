@@ -71,7 +71,7 @@ export const MessageRow: React.FC<MessageRowProps> = ({
     }, [messageKey, onLayoutChange])
 
     return (
-        <div ref={rootRef} className={className} style={{ minWidth: 0 }}>
+        <div ref={rootRef} className={className} style={{ minWidth: 0, width: '100%' }}>
             {children}
         </div>
     )
