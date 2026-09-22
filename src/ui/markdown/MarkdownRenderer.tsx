@@ -28,6 +28,8 @@ import styled, { keyframes } from 'styled-components'
 import { cjk } from './plugins/cjk'
 import { ftAnimateStyles } from './animate/styles'
 import { AnimatedMarkdown, MarkdownAnimateProps } from './animate/AnimatedMarkdown'
+import { MarkdownRenderBoundary } from './MarkdownRenderBoundary'
+import { SafeCodeBlock } from './SafeCodeBlock'
 
 const streamdownCaretBlink = keyframes`
     0%, 49% {
@@ -274,19 +276,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
             // 滚动容器与内容分离：
             // - 外层宽度 = 气泡可用宽度，overflow-x:auto → 超宽时出现横向滚动条
             // - 内层 pre 用 w-max + whitespace-pre 按真实内容撑开，不换行
-            return (
-                <div className="chat-code-scroll my-[1.25em] max-w-full min-w-0 overflow-x-auto overscroll-x-contain rounded">
-                    <pre
-                        {...rest}
-                        className={clsx(
-                            '!my-0 w-max max-w-none whitespace-pre break-normal',
-                            preClassName
-                        )}
-                    >
-                        {children}
-                    </pre>
-                </div>
-            )
+            return <SafeCodeBlock className={preClassName}>{children}</SafeCodeBlock>
         }
     }, [])
 
@@ -308,15 +298,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
         }
     }, [A, Pre, MermaidBlockRenderer, components])
 
-    return (
-        <Styled
-            className={clsx(
-                'min-w-0 max-w-full space-y-4 whitespace-normal break-words *:first:mt-0 *:last:mb-0',
-                // '*:last:after:inline *:last:after:align-baseline *:last:after:content-[var(--streamdown-caret)]',
-                className
-            )}
-        >
-            {status === 'streaming' ? (
+    const markdownTree = status === 'streaming' ? (
                 <AnimatedMarkdown
                     sep={sep}
                     {...rest}
@@ -337,7 +319,19 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps & MarkdownAnimateP
                 >
                     {messageContent}
                 </ReactMarkdown>
+            )
+
+    return (
+        <Styled
+            className={clsx(
+                'min-w-0 max-w-full space-y-4 whitespace-normal break-words *:first:mt-0 *:last:mb-0',
+                // '*:last:after:inline *:last:after:align-baseline *:last:after:content-[var(--streamdown-caret)]',
+                className
             )}
+        >
+            <MarkdownRenderBoundary resetKey={messageContent} fallbackText={messageContent}>
+                {markdownTree}
+            </MarkdownRenderBoundary>
         </Styled>
     )
 }

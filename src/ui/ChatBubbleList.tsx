@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react'
 import { useOverlayScrollbars } from 'overlayscrollbars-react'
-import { VList } from 'virtua'
+import { Virtualizer } from 'virtua'
 import type { VListHandle } from 'virtua'
 import type { ChatBubbleListProps, ChatBubbleListRef, BaseMessage } from '../types'
 import { MessageRow } from './MessageRow'
@@ -47,6 +47,7 @@ const ChatBubbleListInner = (
     } = props
 
     const rootRef = useRef<HTMLDivElement | null>(null)
+    const scrollRef = useRef<HTMLDivElement | null>(null)
     const vListRef = useRef<VListHandle | null>(null)
     const layoutFrameRef = useRef<number | null>(null)
     const layoutDirtyRef = useRef(false)
@@ -120,15 +121,15 @@ const ChatBubbleListInner = (
         [autoScrollCtrl, getScrollViewport]
     )
 
-    // 初始化 OverlayScrollbars：以内部 VList 容器作为 viewport
+    // OverlayScrollbars 始终包住同一个滚动容器。Virtualizer 通过 scrollRef 使用它，
+    // 流式消息是 Virtualizer 的兄弟，不另开滚动层。
     useEffect(() => {
         const root = rootRef.current
-        if (root && root.firstElementChild) {
+        const viewport = scrollRef.current
+        if (root && viewport) {
             initialize({
                 target: root,
-                elements: {
-                    viewport: root.firstElementChild as HTMLElement
-                }
+                elements: { viewport }
             })
         }
     }, [initialize])
@@ -273,16 +274,20 @@ const ChatBubbleListInner = (
     }
 
     const content = (
-        <VList
-            ref={vListRef}
-            bufferSize={CHAT_VIRTUAL_BUFFER_SIZE}
-            style={{ height: '100%', width: '100%' }}
-            onScroll={emitScroll}
-        >
-            {virtualMessages.map((message, index) => renderMessage(message, index))}
-            {hasLiveTail ? renderMessage(liveMessage as BaseMessage, liveIndex) : null}
-            {safeBottom > 0 && <div style={{ height: safeBottom }} />}
-        </VList>
+        <div ref={scrollRef} className="h-full w-full" style={{ overflowY: 'auto', height: '100%' }}>
+            <div className="flex w-full flex-col items-center">
+                <Virtualizer
+                    ref={vListRef}
+                    scrollRef={scrollRef}
+                    bufferSize={CHAT_VIRTUAL_BUFFER_SIZE}
+                    onScroll={emitScroll}
+                >
+                    {virtualMessages.map((message, index) => renderMessage(message, index))}
+                </Virtualizer>
+                {hasLiveTail ? renderMessage(liveMessage as BaseMessage, liveIndex) : null}
+                {safeBottom > 0 && <div style={{ height: safeBottom }} />}
+            </div>
+        </div>
     )
 
     const wrapped = container ? container(content) : content

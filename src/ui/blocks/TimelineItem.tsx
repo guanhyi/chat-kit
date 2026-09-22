@@ -15,7 +15,7 @@ export const TimelineItem: React.FC<TimelineItemProps> = ({
     title,
     description,
     icon,
-    showLine = true,
+    showLine = false,
     highlight = false,
     className
 }) => {
@@ -25,6 +25,7 @@ export const TimelineItem: React.FC<TimelineItemProps> = ({
             data-show-line={showLine}
             data-highlight={highlight}
         >
+            {showLine ? (
             <div className="relative last:after:hidden after:absolute after:top-6 after:bottom-0 after:start-3 after:w-px after:-translate-x-[0.5px] after:bg-gray-200">
                 <div className="relative z-10 size-6 flex justify-center items-center">
                     {highlight ? (
@@ -41,6 +42,7 @@ export const TimelineItem: React.FC<TimelineItemProps> = ({
                     )}
                 </div>
             </div>
+            ) : null}
             <div className="flex-1 min-w-0">
                 <h3 className="flex gap-x-1.5 text-[13px] font-medium leading-5 text-gray-700 w-full">
                     {title}

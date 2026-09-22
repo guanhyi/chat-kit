@@ -286,12 +286,13 @@ export const ActivitySummaryBlock: React.FC<ActivitySummaryBlockProps> = ({
                 aria-expanded={open}
                 aria-controls={detailsId}
                 className={clsx(
-                    'group flex min-h-8 w-full max-w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] leading-5 text-gray-700 transition-colors',
+                    'group flex min-h-8 w-full max-w-full items-center gap-2 rounded-md py-1 text-left text-[13px] leading-5 text-gray-700 transition-colors',
                     'hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4376FD]/30'
                 )}
                 onClick={() => setOpen(!open)}
             >
-                <span className="flex size-5 shrink-0 items-center justify-center">
+                <AnimatedActivityText text={typedText} animationKey={displayState.text} />
+                <span className="ml-auto flex size-5 shrink-0 items-center justify-center">
                     <Sparkle
                         size={14}
                         className={clsx(
@@ -300,13 +301,12 @@ export const ActivitySummaryBlock: React.FC<ActivitySummaryBlockProps> = ({
                         )}
                     />
                 </span>
-                <AnimatedActivityText text={typedText} animationKey={displayState.text} />
                 <span className="flex size-5 shrink-0 items-center justify-center text-gray-400">
                     {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                 </span>
             </button>
             {open ? (
-                <div id={detailsId} className="mt-2 space-y-2 pl-7">
+                <div id={detailsId} className="mt-2 space-y-2">
                     {activityBlocks.map((block) => {
                         if (block.type === 'thinking') {
                             return (

@@ -29,7 +29,7 @@ export const CitationBlock: React.FC<CitationBlockProps> = ({
         <ReasoningContainer className={className}>
             <TimelineItem
                 icon={<FileText size={11} />}
-                title={<div className="pl-[8px]">参考文档</div>}
+                title={<div>参考文档</div>}
                 description={
                     <div className="ml-[8px] mt-1.5">
                         <ul className="list-disc pl-5">

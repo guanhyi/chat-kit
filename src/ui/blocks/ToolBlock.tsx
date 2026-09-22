@@ -1,9 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useState } from 'react'
 import { TimelineItem } from './TimelineItem'
 import { ReasoningContainer } from './ReasoningContainer'
 import { ChevronDown, ChevronUp, Wrench } from 'lucide-react'
 import { MarkdownRenderer } from '../markdown/MarkdownRenderer'
-import { CollapsibleBlockBody } from './CollapsibleBlockBody'
 
 export interface ToolBlockProps {
     toolName: string
@@ -21,17 +20,7 @@ export const ToolBlock: React.FC<ToolBlockProps> = ({
     status = 'idle',
     className
 }) => {
-    const streaming = status === 'streaming'
-    const [open, setOpen] = useState(true)
-    const userToggledRef = useRef(false)
-
-    useEffect(() => {
-        if (streaming) {
-            setOpen(true)
-            return
-        }
-        if (!userToggledRef.current) setOpen(false)
-    }, [streaming])
+    const [open, setOpen] = useState(false)
 
     return (
         <ReasoningContainer className={className}>
@@ -41,12 +30,9 @@ export const ToolBlock: React.FC<ToolBlockProps> = ({
                 title={
                     <div
                         className="flex items-center text-[13px] hover:bg-gray-100 rounded-md cursor-pointer flex-1 w-full"
-                        onClick={() => {
-                            userToggledRef.current = true
-                            setOpen((v) => !v)
-                        }}
+                        onClick={() => setOpen((v) => !v)}
                     >
-                        <div className="font-[500] pl-[8px]">
+                        <div className="font-[500]">
                             {status === 'streaming'
                                 ? `正在调用 ${toolName}`
                                 : `已调用 ${toolName}`}
@@ -57,7 +43,7 @@ export const ToolBlock: React.FC<ToolBlockProps> = ({
                     </div>
                 }
                 description={
-                    <CollapsibleBlockBody open={open} streaming={streaming}>
+                    open ? (
                         <div className="mt-1.5 w-full overflow-hidden">
                             <div className="bg-gray-50 rounded-md border border-gray-100 p-2 w-full">
                                 <div className="overflow-x-auto w-full max-h-60 overflow-y-auto">
@@ -69,7 +55,9 @@ export const ToolBlock: React.FC<ToolBlockProps> = ({
                                 </div>
                             </div>
                         </div>
-                    </CollapsibleBlockBody>
+                    ) : (
+                        <div />
+                    )
                 }
             />
         </ReasoningContainer>

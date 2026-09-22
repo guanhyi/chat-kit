@@ -1,9 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useState } from 'react'
 import { TimelineItem } from './TimelineItem'
 import { ReasoningContainer } from './ReasoningContainer'
 import { Brain, ChevronDown, ChevronUp } from 'lucide-react'
 import { MarkdownRenderer } from '../markdown/MarkdownRenderer'
-import { CollapsibleBlockBody } from './CollapsibleBlockBody'
 
 export interface ThinkingBlockProps {
     content: string
@@ -19,17 +18,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
     status = 'idle',
     className
 }) => {
-    const streaming = status === 'streaming'
-    const [open, setOpen] = useState(streaming)
-    const userToggledRef = useRef(false)
-
-    useEffect(() => {
-        if (streaming) {
-            setOpen(true)
-            return
-        }
-        if (!userToggledRef.current) setOpen(false)
-    }, [streaming])
+    const [open, setOpen] = useState(false)
     return (
         <ReasoningContainer className={className}>
             <TimelineItem
@@ -38,12 +27,9 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
                 title={
                     <div
                         className="flex items-center text-[13px] hover:bg-gray-100 rounded-md cursor-pointer flex-1 w-full"
-                        onClick={() => {
-                            userToggledRef.current = true
-                            setOpen((v) => !v)
-                        }}
+                        onClick={() => setOpen((v) => !v)}
                     >
-                        <div className="font-[500] pl-[8px]">
+                        <div className="font-[500]">
                             {status === 'streaming' ? '思考中' : '已深度思考'}
                         </div>
                         <div className="text-gray-400 ml-auto rounded-md p-[4px]">
@@ -52,11 +38,13 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
                     </div>
                 }
                 description={
-                    <CollapsibleBlockBody open={open} streaming={streaming}>
+                    open ? (
                         <div className="ml-[8px] mt-1.5 prose prose-sm max-w-full pr-2 text-[12px]">
                             <MarkdownRenderer content={content || ''} status={status} />
                         </div>
-                    </CollapsibleBlockBody>
+                    ) : (
+                        <div />
+                    )
                 }
             />
         </ReasoningContainer>
