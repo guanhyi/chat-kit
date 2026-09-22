@@ -42,6 +42,7 @@ const ChatBubbleListInner = (
         style,
         container,
         onScroll,
+        onFollowChange,
         bubbleClassName = 'max-w-[820px] min-w-0 w-full py-[30px] px-[10px] mx-auto relative'
     } = props
 
@@ -50,8 +51,10 @@ const ChatBubbleListInner = (
     const contentRef = useRef<HTMLDivElement | null>(null)
     const vListRef = useRef<VListHandle | null>(null)
     const onScrollRef = useRef(onScroll)
+    const onFollowChangeRef = useRef(onFollowChange)
 
     onScrollRef.current = onScroll
+    onFollowChangeRef.current = onFollowChange
 
     const [initialize] = useOverlayScrollbars({
         defer: true,
@@ -163,6 +166,10 @@ const ChatBubbleListInner = (
             detach?.()
         }
     }, [autoScroll, autoScrollCtrl.attach])
+
+    useEffect(() => {
+        onFollowChangeRef.current?.(autoScrollCtrl.follow)
+    }, [autoScrollCtrl.follow])
 
     // 贴底入口一：消息提交（发送、流式 delta）后在绘制前对账并贴底。
     // 入口二是 useAutoScroll 里的 ResizeObserver，接住虚拟行测高、图片加载这类不经过 React 提交的长高。

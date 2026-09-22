@@ -27,4 +27,9 @@ export * from './ui/blocks/splitMessageBlocks'
 
 export * from './md-to-doc/MdToDoc'
 
+// 输入框：提问历史与按会话草稿
+export * from './composer/promptHistory'
+export * from './composer/composerDraft'
+export type { StorageLike } from './composer/storage'
+
 export * from './ui/markdown/animate/utils'

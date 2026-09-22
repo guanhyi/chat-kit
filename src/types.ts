@@ -250,6 +250,11 @@ export interface ChatBubbleListProps<TMessage extends BaseMessage = BaseMessage>
      * 注意：scroll 事件本身不冒泡，需要通过该回调或监听 viewport 才能可靠感知滚动。
      */
     onScroll?: (offset: number) => void
+    /**
+     * 跟随态变化回调：用户上滚离底时为 false，回到底部（或调用 scrollToBottom）后为 true。
+     * 可用来显示「回到底部」按钮。
+     */
+    onFollowChange?: (following: boolean) => void
 }
 
 export interface UseDefaultChatAdapterOptions<
