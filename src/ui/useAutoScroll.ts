@@ -4,11 +4,13 @@ import {
     LAYOUT_SCROLL_GUARD_MS,
     USER_SCROLL_INTENT_TTL_MS,
     anchorActionAfterContentChange,
+    bottomSettleAction,
     classifyScrollSource,
     isAtBottom,
     keyboardScrollIntent,
     reconcileFollowingForContentAnchor,
     resolveFollowingAfterScroll,
+    shouldAnimateScrollToBottom,
     touchScrollIntent,
     wheelScrollIntent,
     type ScrollMetrics,
@@ -100,6 +102,13 @@ export function useAutoScroll(
     const scrollbarPointerIdRef = useRef<number | null>(null)
     // 列表内正在拖选文字时锁定，阻止贴底把选区自动滚动拉回去
     const selectionLockRef = useRef(false)
+    // 程序化贴底的收敛状态，见 scrollAnchor.bottomSettleAction
+    const settleRef = useRef<{
+        frame: number | null
+        startedAt: number
+        contentHeight: number
+        stableFrames: number
+    } | null>(null)
 
     const commitFollowing = useCallback((next: boolean, silent = false) => {
         followingRef.current = next
@@ -107,6 +116,13 @@ export function useAutoScroll(
         if (silent || publishedFollowRef.current === next) return
         publishedFollowRef.current = next
         setFollowState(next)
+    }, [])
+
+    const stopSettle = useCallback(() => {
+        const settle = settleRef.current
+        if (!settle) return
+        settleRef.current = null
+        if (settle.frame !== null) cancelAnimationFrame(settle.frame)
     }, [])
 
     const getActiveUserScrollIntent = useCallback((): UserScrollIntent => {
@@ -132,6 +148,8 @@ export function useAutoScroll(
             if (intent === 'none') return
             userScrollIntentRef.current = { intent, observedAt: Date.now() }
             smoothScrollUntilRef.current = 0
+            // 用户一动就交还滚动权，程序化贴底不再跟他抢
+            stopSettle()
             const viewport = getViewport()
             // 向上滚动必须在 scroll 事件之前先拿走滚动权，否则同帧的贴底会拿过期的
             // following=true 把用户拽回底部
@@ -143,7 +161,7 @@ export function useAutoScroll(
                 commitFollowing(false, selectionLockRef.current)
             }
         },
-        [getViewport, commitFollowing]
+        [getViewport, commitFollowing, stopSettle]
     )
 
     const markProgrammaticScroll = useCallback(() => {
@@ -185,22 +203,86 @@ export function useAutoScroll(
         }
     }, [getViewport, getActiveUserScrollIntent, commitFollowing, stickToBottom, epsilonPx])
 
+    /**
+     * 贴底锁的每帧回调：重新对齐底部，直到内容高度稳定且确实到底。
+     * 虚拟列表下方的消息只有估高，一次性的 scrollTo 必然瞄不准，靠这个循环收敛。
+     */
+    const settleTick = useCallback(() => {
+        const settle = settleRef.current
+        if (!settle) return
+        settle.frame = null
+        const viewport = getViewport()
+        if (!viewport || selectionLockRef.current) {
+            stopSettle()
+            return
+        }
+        const now = Date.now()
+        const metrics = readMetrics(viewport)
+        // 这趟滚动产生的 scroll 事件都是程序化回声，别让它被兜底判成用户滚动
+        layoutGuardUntilRef.current = now + LAYOUT_SCROLL_GUARD_MS
+        const action = bottomSettleAction({
+            following: followingRef.current,
+            metrics,
+            lastContentHeight: settle.contentHeight,
+            stableFrames: settle.stableFrames,
+            smoothActive: now < smoothScrollUntilRef.current,
+            elapsedMs: now - settle.startedAt,
+            bottomEpsilonPx: epsilonPx
+        })
+        settle.stableFrames =
+            metrics.contentHeight === settle.contentHeight ? settle.stableFrames + 1 : 0
+        settle.contentHeight = metrics.contentHeight
+
+        if (action === 'stop') {
+            stopSettle()
+            return
+        }
+        if (action === 'stick') {
+            // 接管 smooth 动画：它的落点早就过期了
+            smoothScrollUntilRef.current = 0
+            stickToBottom(viewport)
+        } else if (action === 'retarget') {
+            // 不延长 smooth 窗口，到期后由 stick 收尾
+            viewport.scrollTo({ top: metrics.contentHeight, behavior: 'smooth' })
+        }
+        settle.frame = requestAnimationFrame(settleTick)
+    }, [getViewport, stopSettle, stickToBottom, epsilonPx])
+
     /** 回到底部并恢复跟随：发送消息、打开会话、点「回到底部」都走这里 */
     const scrollToBottom = useCallback(
         (behavior: ScrollBehavior | 'instant' = 'instant') => {
-            if (selectionLockRef.current) return
             const viewport = getViewport()
             if (!viewport) return
+            // 明确的「回到底部」指令：只有列表里真的有选区才让路。
+            // 一次误锁会让这条指令静默失败，而且没有任何人会重试它。
+            if (selectionLockRef.current) {
+                if (isNonCollapsedSelectionInside(viewport)) return
+                selectionLockRef.current = false
+            }
             clearUserScrollIntent()
             commitFollowing(true)
-            if (behavior === 'smooth') {
+            stopSettle()
+            // 第一帧 settleTick 之前也可能有测高补偿的 scroll，先把保护窗开上
+            layoutGuardUntilRef.current = Date.now() + LAYOUT_SCROLL_GUARD_MS
+
+            const metrics = readMetrics(viewport)
+            // 距离太远就别做动画了：途经的消息还没测高，动画瞄的是个偏小的目标
+            if (behavior === 'smooth' && shouldAnimateScrollToBottom(metrics)) {
                 smoothScrollUntilRef.current = Date.now() + SMOOTH_SCROLL_GUARD_MS
-                viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' })
-                return
+                viewport.scrollTo({ top: metrics.contentHeight, behavior: 'smooth' })
+            } else {
+                smoothScrollUntilRef.current = 0
+                stickToBottom(viewport)
             }
-            stickToBottom(viewport)
+
+            settleRef.current = {
+                frame: requestAnimationFrame(settleTick),
+                startedAt: Date.now(),
+                contentHeight: metrics.contentHeight,
+                stableFrames: 0
+            }
         },
-        [getViewport, clearUserScrollIntent, commitFollowing, stickToBottom]
+        [getViewport, clearUserScrollIntent, commitFollowing, stickToBottom, stopSettle, settleTick]
     )
 
     const attach = useCallback(() => {
@@ -229,11 +311,18 @@ export function useAutoScroll(
             unlockSelection()
         }
 
+        // selectstart 在「点一下正文」时也会触发（比如点消息下面的再试一次），
+        // 当场上锁会让紧接着的 scrollToBottom 整个变成空操作，而且没人重试。
+        // 推迟一帧，只有选区真的拉开了才锁。拖选时 selectionchange 也会同步到锁上。
+        let selectionStartFrame: number | null = null
         const onSelectStart = (event: Event) => {
             const target = event.target
-            if (target instanceof Node && viewport.contains(target)) {
-                lockSelection()
-            }
+            if (!(target instanceof Node) || !viewport.contains(target)) return
+            if (selectionStartFrame !== null) cancelAnimationFrame(selectionStartFrame)
+            selectionStartFrame = requestAnimationFrame(() => {
+                selectionStartFrame = null
+                if (isNonCollapsedSelectionInside(viewport)) lockSelection()
+            })
         }
 
         const onWheel = (event: WheelEvent) => {
@@ -360,6 +449,7 @@ export function useAutoScroll(
 
         return () => {
             resizeObserver?.disconnect()
+            if (selectionStartFrame !== null) cancelAnimationFrame(selectionStartFrame)
             if (selectionProbeTimer != null) window.clearTimeout(selectionProbeTimer)
             viewport.removeEventListener('wheel', onWheel, true)
             viewport.removeEventListener('touchstart', onTouchStart, true)
@@ -385,11 +475,12 @@ export function useAutoScroll(
 
     useEffect(() => {
         return () => {
+            stopSettle()
             if (programmaticFrameRef.current !== null) {
                 cancelAnimationFrame(programmaticFrameRef.current)
             }
         }
-    }, [])
+    }, [stopSettle])
 
     const setFollow = useCallback((v: boolean) => commitFollowing(v), [commitFollowing])
 

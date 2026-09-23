@@ -6,8 +6,15 @@ export {
     ChatSessionStore,
     createMessageId,
     defaultFormatError,
+    getActiveChatSessionKeys,
+    isChatSessionStreaming,
+    subscribeActiveChatSessions,
+    subscribeChatSessionSettled,
+    type ChatSessionLifecycleEvent,
+    type ChatSessionSettledEvent,
     type ChatSessionState
 } from './controller/chatSessionStore'
+export * from './controller/useActiveChatSessions'
 export * from './stream/openChatStream'
 export { SseJsonParser } from './stream/sseParser'
 export * from './ui/useAutoScroll'

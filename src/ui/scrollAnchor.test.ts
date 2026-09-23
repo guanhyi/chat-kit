@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
     anchorActionAfterContentChange,
+    bottomSettleAction,
     classifyScrollSource,
     distanceToBottom,
     isAtBottom,
     keyboardScrollIntent,
     reconcileFollowingForContentAnchor,
     resolveFollowingAfterScroll,
+    shouldAnimateScrollToBottom,
     touchScrollIntent,
     wheelScrollIntent
 } from './scrollAnchor'
@@ -152,5 +154,72 @@ describe('anchorActionAfterContentChange', () => {
     it('sticks only while following', () => {
         expect(anchorActionAfterContentChange(true)).toBe('stickToBottom')
         expect(anchorActionAfterContentChange(false)).toBe('hold')
+    })
+})
+
+describe('shouldAnimateScrollToBottom', () => {
+    it('animates only when the bottom is within reach', () => {
+        expect(shouldAnimateScrollToBottom(atBottom)).toBe(true)
+        // 离底 400px，正好一屏
+        expect(shouldAnimateScrollToBottom(midway)).toBe(true)
+        // 离底 4600px：途经的消息都还没测高，动画一定瞄不准
+        expect(
+            shouldAnimateScrollToBottom({
+                scrollTop: 0,
+                viewportHeight: 400,
+                contentHeight: 5000
+            })
+        ).toBe(false)
+    })
+})
+
+describe('bottomSettleAction', () => {
+    const settling = {
+        following: true,
+        metrics: atBottom,
+        lastContentHeight: 1000,
+        stableFrames: 0,
+        smoothActive: false,
+        elapsedMs: 0
+    }
+
+    it('hands the scroll back as soon as the user takes it', () => {
+        expect(bottomSettleAction({ ...settling, following: false })).toBe('stop')
+    })
+
+    it('gives up after the timeout instead of holding rAF forever', () => {
+        expect(bottomSettleAction({ ...settling, elapsedMs: 2001, metrics: midway })).toBe('stop')
+    })
+
+    it('re-aligns whenever the virtual list re-measures', () => {
+        // 内容长高了（虚拟行测到真实高度），上一次落点已经不是底部
+        expect(bottomSettleAction({ ...settling, lastContentHeight: 800 })).toBe('stick')
+    })
+
+    it('retargets instead of snapping while the smooth animation runs', () => {
+        expect(
+            bottomSettleAction({ ...settling, lastContentHeight: 800, smoothActive: true })
+        ).toBe('retarget')
+    })
+
+    it('keeps correcting a landing that fell short of the bottom', () => {
+        // 高度已经稳定，但没到底：一次性 scrollTo 瞄的是偏小的 scrollHeight
+        expect(bottomSettleAction({ ...settling, metrics: midway, stableFrames: 5 })).toBe('stick')
+    })
+
+    it('lets the smooth animation finish on its own while the height holds still', () => {
+        expect(
+            bottomSettleAction({
+                ...settling,
+                metrics: midway,
+                stableFrames: 5,
+                smoothActive: true
+            })
+        ).toBe('hold')
+    })
+
+    it('settles only after the height stops changing at the bottom', () => {
+        expect(bottomSettleAction({ ...settling, stableFrames: 1 })).toBe('stick')
+        expect(bottomSettleAction({ ...settling, stableFrames: 2 })).toBe('stop')
     })
 })

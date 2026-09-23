@@ -5,9 +5,12 @@ import { createFakeHttp, sseFrame } from '../stream/__testing__/fakeHttp'
 import {
     ChatSessionStore,
     acquireChatSession,
+    getActiveChatSessionKeys,
     releaseChatSession,
     resetChatSessionsForTest,
-    retainChatSession
+    retainChatSession,
+    subscribeChatSessionSettled,
+    type ChatSessionSettledEvent
 } from './chatSessionStore'
 
 function createStore(http = createFakeHttp(), overrides: Record<string, unknown> = {}) {
@@ -211,6 +214,37 @@ describe('chat session registry', () => {
         const third = acquireChatSession('chat-1', create)
         expect(third.restored).toBe(false)
         expect(third.store).not.toBe(first.store)
+    })
+
+    it('reports which sessions are generating, including after their view is gone', () => {
+        const http = createFakeHttp()
+        const { store } = acquireChatSession('chat-3', () => createStore(http).store)
+        retainChatSession('chat-3', store)
+        expect(getActiveChatSessionKeys()).toEqual([])
+
+        sendWithPlaceholder(store)
+        expect(getActiveChatSessionKeys()).toEqual(['chat-3'])
+
+        // 用户切走了，请求还在跑
+        releaseChatSession('chat-3', store)
+        expect(getActiveChatSessionKeys()).toEqual(['chat-3'])
+
+        http.push(sseFrame({ answer: '答案', isEnd: true }))
+        expect(getActiveChatSessionKeys()).toEqual([])
+    })
+
+    it('announces the outcome so another view can notify the user', () => {
+        const settled: ChatSessionSettledEvent[] = []
+        subscribeChatSessionSettled((event) => settled.push(event))
+        const http = createFakeHttp()
+        const { store } = acquireChatSession('chat-4', () => createStore(http).store)
+        retainChatSession('chat-4', store)
+        sendWithPlaceholder(store)
+        http.push(sseFrame({ answer: '答案', isEnd: true }))
+
+        expect(settled).toHaveLength(1)
+        expect(settled[0]).toMatchObject({ key: 'chat-4', messageId: 'ai-1' })
+        expect(settled[0].outcome).toMatchObject({ phase: 'done', reason: 'final' })
     })
 
     it('disposes an idle session as soon as its last view is released', () => {

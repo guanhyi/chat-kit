@@ -24,15 +24,35 @@ function mockGeometry(viewport: HTMLElement, initialContentHeight: number) {
             top = clamp(value)
         }
     })
+    // jsdom 没有 smooth 动画：按落到目标处理，目标本身就是调用时的 scrollHeight
+    const scrollToTargets: number[] = []
+    viewport.scrollTo = ((options: ScrollToOptions | number) => {
+        const value = typeof options === 'number' ? options : (options.top ?? top)
+        scrollToTargets.push(value)
+        top = clamp(value)
+        viewport.dispatchEvent(new Event('scroll'))
+    }) as HTMLElement['scrollTo']
     return {
         setContentHeight(value: number) {
             contentHeight = value
         },
+        /** 组件调用 viewport.scrollTo 时传入的目标位置 */
+        scrollToTargets,
         /** 模拟一次滚动（用户或布局），并派发 scroll 事件 */
         scrollTo(value: number) {
             top = clamp(value)
             viewport.dispatchEvent(new Event('scroll'))
         }
+    }
+}
+
+/** 等若干个真实的 rAF 帧，驱动贴底锁的收敛循环 */
+async function runFrames(frames = 6) {
+    for (let index = 0; index < frames; index++) {
+        // eslint-disable-next-line no-await-in-loop
+        await act(async () => {
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+        })
     }
 }
 
@@ -156,6 +176,83 @@ describe('useAutoScroll', () => {
         act(() => ctrl.scrollToBottom())
         expect(ctrl.isFollowing()).toBe(true)
         expect(viewport.scrollTop).toBe(600)
+        grow(1200)
+        expect(viewport.scrollTop).toBe(800)
+    })
+
+    it('lands at the real bottom after the virtual list measures the rows below', async () => {
+        // 用户上滚到对话中间，在某一条上点「再试一次」
+        act(() => {
+            viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }))
+            geometry.scrollTo(100)
+        })
+        expect(ctrl.isFollowing()).toBe(false)
+
+        // 此刻下方消息还没测高，scrollHeight 只是估算值
+        act(() => ctrl.scrollToBottom('smooth'))
+        expect(viewport.scrollTop).toBe(600)
+
+        // 虚拟列表随后测到真实高度。这不经过 React 提交，没有人调 maybeFollow
+        geometry.setContentHeight(3000)
+        await runFrames()
+        expect(viewport.scrollTop).toBe(2600)
+        expect(ctrl.isFollowing()).toBe(true)
+    })
+
+    it('skips the animation when the bottom is far away', () => {
+        act(() => {
+            viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }))
+            geometry.scrollTo(0)
+        })
+        geometry.setContentHeight(5000)
+        act(() => ctrl.scrollToBottom('smooth'))
+        // 离底 4600px：直接瞬时贴底，不启动一个必定瞄不准的动画
+        expect(geometry.scrollToTargets).toEqual([])
+        expect(viewport.scrollTop).toBe(4600)
+    })
+
+    it('does not let layout compensation during the jump revoke following', async () => {
+        act(() => {
+            viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }))
+            geometry.scrollTo(100)
+        })
+        act(() => ctrl.scrollToBottom())
+
+        // 等回复的空档里内容高度不变，虚拟列表却做了一次测高补偿。
+        // 以前这种 scroll 会被兜底判成「用户滚动」，跟随就此断掉。
+        await runFrames(2)
+        act(() => geometry.scrollTo(200))
+        expect(ctrl.isFollowing()).toBe(true)
+        await runFrames(2)
+        expect(viewport.scrollTop).toBe(600)
+    })
+
+    it('stops correcting the moment the user scrolls up', async () => {
+        act(() => ctrl.scrollToBottom())
+        act(() => {
+            viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }))
+            geometry.scrollTo(200)
+        })
+        geometry.setContentHeight(3000)
+        await runFrames()
+        expect(ctrl.isFollowing()).toBe(false)
+        expect(viewport.scrollTop).toBe(200)
+    })
+
+    it('is not blocked by the selectstart a plain click in the list fires', async () => {
+        act(() => {
+            viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }))
+            geometry.scrollTo(100)
+        })
+        // 点消息下面的「再试一次」：浏览器会先派发 selectstart，但选区是空的
+        act(() => {
+            viewport.firstElementChild!.dispatchEvent(
+                new Event('selectstart', { bubbles: true })
+            )
+        })
+        act(() => ctrl.scrollToBottom('smooth'))
+        expect(viewport.scrollTop).toBe(600)
+        expect(ctrl.isFollowing()).toBe(true)
         grow(1200)
         expect(viewport.scrollTop).toBe(800)
     })

@@ -148,3 +148,78 @@ export function reconcileFollowingForContentAnchor(input: {
 export function anchorActionAfterContentChange(following: boolean): 'stickToBottom' | 'hold' {
     return following ? 'stickToBottom' : 'hold'
 }
+
+// ===================== 程序化贴底的收敛 =====================
+//
+// 虚拟列表里 scrollHeight 是估算值：视口外的消息只有估高，真实高度要等渲染后测量。
+// 一次性的 scrollTo(scrollHeight) 因此必然瞄不准——边滚边测高，落点就短了。
+// 「贴底锁」把这趟程序化滚动做成有始有终的过程：每帧重新对齐底部，直到内容高度
+// 连续若干帧不再变化且确实到底，或者超时，或者用户自己接管了滚动。
+
+/** 贴底锁的兜底时长：超过就放手，避免内容一直在长时锁死 rAF。 */
+export const BOTTOM_SETTLE_TIMEOUT_MS = 2000
+
+/** 内容高度连续这么多帧不变，才认为虚拟列表测高结束。 */
+export const BOTTOM_SETTLE_STABLE_FRAMES = 3
+
+/**
+ * smooth 动画的最大距离，单位是视口高度。
+ * 超过它说明途中大量消息还没测高，动画一定瞄不准，直接瞬时贴底更可靠。
+ */
+export const SMOOTH_SCROLL_MAX_DISTANCE_RATIO = 1.5
+
+/** 距离够近时才值得做 smooth 动画：此时途经内容已经渲染过，scrollHeight 可信。 */
+export function shouldAnimateScrollToBottom(
+    metrics: ScrollMetrics,
+    maxDistanceRatio: number = SMOOTH_SCROLL_MAX_DISTANCE_RATIO
+): boolean {
+    return distanceToBottom(metrics) <= metrics.viewportHeight * maxDistanceRatio
+}
+
+export type BottomSettleAction =
+    /** 结束贴底锁 */
+    | 'stop'
+    /** 立即同步写 scrollTop 贴底 */
+    | 'stick'
+    /** 内容长高了，smooth 动画的落点已过期，重新瞄准新的底部 */
+    | 'retarget'
+    /** 让 smooth 动画自己跑，本帧不插手 */
+    | 'hold'
+
+/**
+ * 贴底锁每帧的动作。
+ *
+ * - 跟随权被用户拿走（上滚、拖滚动条离底）→ 立刻放手，绝不把人拽回来；
+ * - 超时 → 放手，避免持续输出的会话把锁一直续下去；
+ * - 内容高度变了 → smooth 期间重新瞄准，否则直接贴底；
+ * - 高度稳定且已到底 → 收敛，解锁。
+ */
+export function bottomSettleAction(input: {
+    /** 跟随权。任何真实用户滚动都会把它置 false */
+    following: boolean
+    metrics: ScrollMetrics
+    /** 上一帧记下的内容高度 */
+    lastContentHeight: number
+    /** 到上一帧为止，内容高度已经连续多少帧没变 */
+    stableFrames: number
+    /** 浏览器的 smooth 动画是否还在窗口期内 */
+    smoothActive: boolean
+    /** 从加锁到现在经过的毫秒数 */
+    elapsedMs: number
+    bottomEpsilonPx?: number
+    timeoutMs?: number
+    stableFramesToSettle?: number
+}): BottomSettleAction {
+    if (!input.following) return 'stop'
+    if (input.elapsedMs > (input.timeoutMs ?? BOTTOM_SETTLE_TIMEOUT_MS)) return 'stop'
+
+    const epsilonPx = input.bottomEpsilonPx ?? BOTTOM_ANCHOR_EPSILON_PX
+    if (input.metrics.contentHeight !== input.lastContentHeight) {
+        return input.smoothActive ? 'retarget' : 'stick'
+    }
+
+    const stableFrames = input.stableFrames + 1
+    const settled = stableFrames >= (input.stableFramesToSettle ?? BOTTOM_SETTLE_STABLE_FRAMES)
+    if (settled && isAtBottom(input.metrics, epsilonPx)) return 'stop'
+    return input.smoothActive ? 'hold' : 'stick'
+}

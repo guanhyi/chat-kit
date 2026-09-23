@@ -43,6 +43,11 @@ interface QueuedEvent<TExtra> {
     event: StreamEvent
 }
 
+/** 请求的开始/结束。用来在会话之外（会话列表、通知、关闭确认）感知进行中的对话 */
+export type ChatSessionLifecycleEvent =
+    | { type: 'start'; messageId: string }
+    | { type: 'settle'; messageId: string; outcome: StreamOutcome }
+
 /** 后台标签页不跑 rAF，用定时器兜底，避免切回来之前内容一直不更新 */
 const FLUSH_FALLBACK_MS = 50
 
@@ -85,6 +90,7 @@ export class ChatSessionStore<TMessage extends BaseMessage = BaseMessage, TExtra
     private state: ChatSessionState<TMessage>
     private readonly listeners = new Set<() => void>()
     private readonly idleListeners = new Set<() => void>()
+    private readonly lifecycleListeners = new Set<(event: ChatSessionLifecycleEvent) => void>()
     private active: ActiveStream<TExtra> | null = null
     private queue: QueuedEvent<TExtra>[] = []
     private flushHandle: { raf: number | null; timer: ReturnType<typeof setTimeout> } | null = null
@@ -112,6 +118,17 @@ export class ChatSessionStore<TMessage extends BaseMessage = BaseMessage, TExtra
 
     get isStreaming(): boolean {
         return this.active !== null
+    }
+
+    /**
+     * 订阅请求的开始与结束。与 subscribe 不同，它不随流式增量触发，
+     * 适合给会话列表、站内通知这类「只关心有没有在生成」的地方用。
+     */
+    onLifecycle(listener: (event: ChatSessionLifecycleEvent) => void) {
+        this.lifecycleListeners.add(listener)
+        return () => {
+            this.lifecycleListeners.delete(listener)
+        }
     }
 
     /** 当前请求结束时通知一次 */
@@ -164,6 +181,7 @@ export class ChatSessionStore<TMessage extends BaseMessage = BaseMessage, TExtra
         }
         this.active = active
         this.setState({ loading: true, activeMessageId: ctx.messageId })
+        this.emitLifecycle({ type: 'start', messageId: ctx.messageId })
 
         try {
             const request = this.options.buildRequest({ question: ctx.question, extra: ctx.extra })
@@ -239,6 +257,11 @@ export class ChatSessionStore<TMessage extends BaseMessage = BaseMessage, TExtra
         }
         this.listeners.clear()
         this.idleListeners.clear()
+        this.lifecycleListeners.clear()
+    }
+
+    private emitLifecycle(event: ChatSessionLifecycleEvent) {
+        for (const listener of [...this.lifecycleListeners]) listener(event)
     }
 
     private get lifecycle(): MessageLifecycle<TMessage, TExtra> {
@@ -298,9 +321,11 @@ export class ChatSessionStore<TMessage extends BaseMessage = BaseMessage, TExtra
             target.updatedAt = Date.now()
         })
 
-        if (this.active === active) {
+        const wasCurrent = this.active === active
+        if (wasCurrent) {
             this.active = null
             this.setState({ loading: false, activeMessageId: null })
+            this.emitLifecycle({ type: 'settle', messageId: active.ctx.messageId, outcome })
         }
 
         if (outcome.phase === 'done') this.options.onComplete?.()
@@ -322,9 +347,84 @@ interface SessionEntry {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     store: ChatSessionStore<any, any>
     leases: number
+    /** 解绑 onLifecycle */
+    detach: () => void
 }
 
 const sessions = new Map<string, SessionEntry>()
+
+/** 会话结束的通知：谁、结果如何 */
+export interface ChatSessionSettledEvent {
+    key: string
+    messageId: string
+    outcome: StreamOutcome
+}
+
+const activeKeys = new Set<string>()
+/** useSyncExternalStore 要求快照引用稳定，只在集合真变了时换一份 */
+let activeKeysSnapshot: string[] = []
+const activeListeners = new Set<() => void>()
+const settledListeners = new Set<(event: ChatSessionSettledEvent) => void>()
+
+function publishActiveKeys() {
+    activeKeysSnapshot = [...activeKeys]
+    for (const listener of [...activeListeners]) listener()
+}
+
+function attachSession(key: string, store: ChatSessionStore<any, any>) {
+    const detach = store.onLifecycle((event) => {
+        if (event.type === 'start') {
+            if (activeKeys.has(key)) return
+            activeKeys.add(key)
+            publishActiveKeys()
+            return
+        }
+        if (activeKeys.delete(key)) publishActiveKeys()
+        const settled: ChatSessionSettledEvent = {
+            key,
+            messageId: event.messageId,
+            outcome: event.outcome
+        }
+        for (const listener of [...settledListeners]) listener(settled)
+    })
+    if (store.isStreaming && !activeKeys.has(key)) {
+        activeKeys.add(key)
+        publishActiveKeys()
+    }
+    return detach
+}
+
+function forgetSession(key: string, entry: SessionEntry) {
+    entry.detach()
+    if (activeKeys.delete(key)) publishActiveKeys()
+}
+
+/** 当前正在生成的会话 key（就是 useChatController 的 sessionKey）。引用稳定 */
+export function getActiveChatSessionKeys(): string[] {
+    return activeKeysSnapshot
+}
+
+export function isChatSessionStreaming(key: string): boolean {
+    return activeKeys.has(key)
+}
+
+/** 订阅「哪些会话在生成」的变化 */
+export function subscribeActiveChatSessions(listener: () => void): () => void {
+    activeListeners.add(listener)
+    return () => {
+        activeListeners.delete(listener)
+    }
+}
+
+/** 订阅会话结束事件。用于非当前会话完成时的站内通知 */
+export function subscribeChatSessionSettled(
+    listener: (event: ChatSessionSettledEvent) => void
+): () => void {
+    settledListeners.add(listener)
+    return () => {
+        settledListeners.delete(listener)
+    }
+}
 
 /**
  * 取出 key 对应的会话；不存在就用 create 新建并登记。
@@ -337,7 +437,7 @@ export function acquireChatSession<TMessage extends BaseMessage, TExtra>(
     const existing = sessions.get(key)
     if (existing) return { store: existing.store, restored: true }
     const store = create()
-    sessions.set(key, { store, leases: 0 })
+    sessions.set(key, { store, leases: 0, detach: attachSession(key, store) })
     return { store, restored: false }
 }
 
@@ -348,7 +448,8 @@ export function retainChatSession(key: string, store: ChatSessionStore<any, any>
         entry.leases += 1
         return
     }
-    sessions.set(key, { store, leases: 1 })
+    if (entry) forgetSession(key, entry)
+    sessions.set(key, { store, leases: 1, detach: attachSession(key, store) })
 }
 
 /**
@@ -364,12 +465,20 @@ export function releaseChatSession(key: string, store: ChatSessionStore<any, any
         const current = sessions.get(key)
         if (current !== entry || current.leases > 0) return
         sessions.delete(key)
+        forgetSession(key, entry)
         store.dispose()
     })
 }
 
 /** 测试用：清空所有会话 */
 export function resetChatSessionsForTest() {
-    for (const entry of sessions.values()) entry.store.dispose()
+    for (const [key, entry] of sessions) {
+        forgetSession(key, entry)
+        entry.store.dispose()
+    }
     sessions.clear()
+    activeKeys.clear()
+    activeKeysSnapshot = []
+    activeListeners.clear()
+    settledListeners.clear()
 }
