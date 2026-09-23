@@ -246,9 +246,15 @@ export const MarkdownTable: React.FC<MarkdownTableProps> = ({
                 visible={previewOpen}
                 onCancel={() => setPreviewOpen(false)}
                 footer={null}
-                width={1080}
-                style={{ maxWidth: 'calc(100vw - 32px)' }}
-                bodyStyle={{ padding: 0, overflow: 'hidden' }}
+                // 宽度跟着表格走：2 列的窄表不该被硬拉到固定宽度，宽表则顶到视口为止。
+                // 左右留白由 Semi 的 modal-content（20px）负责，这里只补被 padding:0
+                // 抹掉的底部留白，否则表格直接贴在弹窗底边上。
+                width="fit-content"
+                style={{
+                    maxWidth: 'calc(100vw - 32px)',
+                    minWidth: 'min(520px, calc(100vw - 32px))'
+                }}
+                bodyStyle={{ padding: '0 0 20px', overflow: 'hidden' }}
             >
                 {/*
                   预览里横纵都能滚，表头和首列都值得钉住；对话流里表格跟着页面滚，
