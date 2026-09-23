@@ -1,5 +1,6 @@
 import type { Block } from '../../types'
 import type { CitationItem } from './CitationBlock'
+import { getToolDisplayName } from './toolLabels'
 
 export type ActivityBlock = Block & {
     type: 'thinking' | 'tool' | 'citation'
@@ -109,11 +110,13 @@ export const getLatestActivityExcerpt = (content?: string) => {
 }
 
 const getToolStageLabel = (toolName?: string) => {
-    if (!toolName) {
+    const displayName = getToolDisplayName(toolName)
+    if (!displayName) {
         return '正在调用工具'
     }
 
-    return /search|检索|搜索/i.test(toolName) ? '搜索中' : `正在调用 ${toolName}`
+    // 检索类工具沿用既有的「搜索中」文案
+    return /搜索|检索/.test(displayName) ? '搜索中' : `正在调用 ${displayName}`
 }
 
 const getStreamingText = (label: string, content?: string) => {

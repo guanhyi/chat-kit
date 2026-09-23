@@ -81,6 +81,9 @@ interface ChatSSE<T = any> {
     docs?: any[]
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     node?: any
+    // 原始帧。后端把工具名放在顶层字段时只能从这里取，不能只留上面几个字段
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    raw?: any
 }
 
 const TAG_RULES: Record<
@@ -113,16 +116,23 @@ const TAG_RULES: Record<
 }
 
 const TAG_REGEX = /<(\/)?(think|analysis|tool)([^>]*)>/gi
+const TAG_NAMES = ['think', 'analysis', 'tool']
 
-function parseAttrs(attrStr: string): Record<string, string> {
+// 后端不同版本用过 name / toolName / tool 等写法，按优先级依次尝试
+const TOOL_NAME_ATTR_KEYS = ['name', 'toolname', 'tool_name', 'tool', 'type', 'id']
+
+/**
+ * 解析标签属性。双引号、单引号、不加引号三种写法都接受；
+ * 属性名归一化到小写，`toolName` 与 `tool_name` 因此落到同一个键上。
+ */
+export function parseTagAttrs(attrStr: string): Record<string, string> {
     const attrs: Record<string, string> = {}
-    const re = /(\w+)=\"([^\"]*)\"|(\w+)=\'([^\']*)\'/g
+    const re = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g
     let m: RegExpExecArray | null
     // eslint-disable-next-line no-cond-assign
     while ((m = re.exec(attrStr))) {
-        const key = (m[1] || m[3]) as string
-        const val = (m[2] || m[4]) as string
-        attrs[key] = val
+        const val = m[2] ?? m[3] ?? m[4]
+        if (val !== undefined) attrs[m[1].toLowerCase()] = val
     }
     return attrs
 }
@@ -131,22 +141,55 @@ function cleanTags(input: string): string {
     return input?.replace(/<[^>]*>/g, '') || ''
 }
 
-function fillToolName(attrs: Record<string, string>, sse: ChatSSE<string>): void {
-    if (attrs.name && attrs.name.trim()) return
-    const fallback =
-        attrs.tool ||
-        attrs.id ||
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (sse as any)?.toolName ||
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        sse.node?.name ||
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        sse.node?.toolName ||
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        sse.node?.id
-    if (fallback) {
-        attrs.name = String(fallback)
+/**
+ * 取工具名：先看标签属性，再看这条 SSE 的顶层字段与 node。
+ * 取不到时返回空串——数据层不伪造 'unknown'，怎么显示交给展示层。
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function resolveToolName(attrs: Record<string, string>, raw?: any): string {
+    for (const key of TOOL_NAME_ATTR_KEYS) {
+        const val = attrs[key]
+        if (val && val.trim()) return val.trim()
     }
+    const candidates = [
+        raw?.toolName,
+        raw?.tool_name,
+        raw?.name,
+        raw?.tool,
+        raw?.node?.name,
+        raw?.node?.toolName,
+        raw?.node?.tool_name,
+        raw?.node?.id
+    ]
+    for (const val of candidates) {
+        if (typeof val === 'string' && val.trim()) return val.trim()
+    }
+    return ''
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fillToolName(attrs: Record<string, string>, raw?: any): void {
+    if (attrs.name && attrs.name.trim()) return
+    const name = resolveToolName(attrs, raw)
+    if (name) attrs.name = name
+}
+
+/**
+ * 找帧尾那半个还没闭合的标签，返回需要留到下一帧的下标；没有则返回 -1。
+ * 判定刻意保守：只有看起来确实像已知标签开头（`<` / `</` / `<t` / `<tool …`）才留，
+ * 正文里的 `a < b`、`<toolx` 都不会被扣下。
+ */
+function findTrailingPartialTag(delta: string): number {
+    const start = delta.lastIndexOf('<')
+    // 没有 '<'，或最后一个 '<' 后面还有 '>'，说明标签是完整的
+    if (start < 0 || delta.indexOf('>', start) >= 0) return -1
+
+    const body = delta.slice(start + 1).replace(/^\//, '')
+    const letters = /^[a-zA-Z]*/.exec(body)?.[0] ?? ''
+    if (!letters && body !== '') return -1
+    if (letters && !TAG_NAMES.some((tag) => tag.startsWith(letters.toLowerCase()))) return -1
+
+    return start
 }
 
 type TagStackItem = { tag: string; attrs?: Record<string, string> }
@@ -160,6 +203,12 @@ function sseToChunks(params: {
     const chunks: Chunk[] = []
     let textStarted = params.textStarted
     let stack: TagStackItem[] = [...params.openStack]
+
+    // 名字可能比开标签到得晚（例如 node 在下一帧才带上来），所以每次要用时再尝试回填一次
+    const toolNameOf = (item: TagStackItem): string => {
+        if (item.attrs) fillToolName(item.attrs, sse.raw)
+        return item.attrs?.name || ''
+    }
 
     // 1) 引用更新
     if (sse.docs && sse.docs.length) {
@@ -226,7 +275,7 @@ function sseToChunks(params: {
                         chunks.push({
                             type: CHUNK_TYPE.TOOL_IN_PROGRESS,
                             ts: Date.now(),
-                            name: top.attrs?.name || 'unknown',
+                            name: toolNameOf(top),
                             data: preceding
                         })
                     } else {
@@ -257,9 +306,9 @@ function sseToChunks(params: {
         if (!closing) {
             // 开始标签
             if (rule) {
-                const attrs = parseAttrs(attrStr)
+                const attrs = parseTagAttrs(attrStr)
                 if (tagName === 'tool') {
-                    fillToolName(attrs, sse)
+                    fillToolName(attrs, sse.raw)
                 }
                 // 如果此时不在任何标签内，且已经在输出正文段落，说明一个正文段结束，紧接着进入标签块：切断正文段
                 if (stack.length === 0 && textStarted) {
@@ -276,7 +325,7 @@ function sseToChunks(params: {
                         chunks.push({
                             type: CHUNK_TYPE.TOOL_PENDING,
                             ts: Date.now(),
-                            name: attrs.name || 'unknown'
+                            name: attrs.name || ''
                         })
                     } else {
                         chunks.push({
@@ -301,7 +350,7 @@ function sseToChunks(params: {
                                 chunks.push({
                                     type: CHUNK_TYPE.TOOL_COMPLETE,
                                     ts: Date.now(),
-                                    name: closed.attrs?.name || 'unknown'
+                                    name: toolNameOf(closed)
                                 })
                             } else {
                                 chunks.push({
@@ -331,7 +380,7 @@ function sseToChunks(params: {
                     chunks.push({
                         type: CHUNK_TYPE.TOOL_IN_PROGRESS,
                         ts: Date.now(),
-                        name: top.attrs?.name || 'unknown',
+                        name: toolNameOf(top),
                         data: tail
                     })
                 } else {
@@ -409,7 +458,23 @@ export function createBlocksParser(
 ): (raw: any) => BlockStreamEvent[] {
     let openStack: TagStackItem[] = []
     let textStarted = false
+    // 帧尾那半个没闭合的标签，留到下一帧再拼
+    let carry = ''
     const openBlocks: Array<{ tag: OpenBlockTag; id: string }> = []
+    const warnedToolTags = new Set<string>()
+
+    // 名字解析不出来时把原始标签打出来：下次真出现「已调用工具」时，
+    // 控制台里直接能看到后端到底发的什么，不用再猜。
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const warnMissingToolName = (delta: string, raw: any) => {
+        const tag = /<tool[^>]*>/i.exec(delta)?.[0] ?? '<tool>'
+        if (warnedToolTags.has(tag)) return
+        warnedToolTags.add(tag)
+        console.warn('chat-kit: 未能从工具标签解析出名字，已按空名处理。原始标签:', tag, {
+            node: raw?.node,
+            toolName: raw?.toolName ?? raw?.tool_name ?? raw?.name
+        })
+    }
 
     const openBlock = (tag: OpenBlockTag) => {
         const id = genBlockId()
@@ -432,12 +497,20 @@ export function createBlocksParser(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (raw: any) => {
         const timestamp = Date.now()
+        const isEnd = !!raw?.isEnd
+        // 上一帧没打完的半个标签拼回本帧，否则 `<tool na` 会被当成正文漏出去
+        const delta = carry + String(raw?.answer ?? '')
+        // 最后帧不再保留：宁可把残留吐出来，也不要在流结束时静默吞掉内容
+        const holdFrom = isEnd ? -1 : findTrailingPartialTag(delta)
+        carry = holdFrom >= 0 ? delta.slice(holdFrom) : ''
+
         const sse: ChatSSE<string> = {
-            answer: String(raw?.answer ?? ''),
-            isEnd: !!raw?.isEnd,
+            answer: holdFrom >= 0 ? delta.slice(0, holdFrom) : delta,
+            isEnd,
             status: raw?.status,
             docs: raw?.docs,
-            node: raw?.node
+            node: raw?.node,
+            raw
         }
         const result = sseToChunks({ sse, openStack, textStarted })
         openStack = result.newOpenStack
@@ -493,12 +566,15 @@ export function createBlocksParser(
                         thinking_ms: (chunk as ThinkingComplete).thinking_ms
                     })
                     break
-                case CHUNK_TYPE.TOOL_PENDING:
+                case CHUNK_TYPE.TOOL_PENDING: {
+                    const name = (chunk as ToolPending).name
+                    if (!name) warnMissingToolName(delta, raw)
                     push('tool-pending', {
                         blockId: openBlock('tool'),
-                        name: (chunk as ToolPending).name
+                        name
                     })
                     break
+                }
                 case CHUNK_TYPE.TOOL_IN_PROGRESS: {
                     const block = peekBlock('tool')
                     if (block) {

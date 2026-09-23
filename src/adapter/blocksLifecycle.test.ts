@@ -76,15 +76,38 @@ describe('blocks lifecycle', () => {
         const next = applyAll(baseMessages(), parseAll(RAWS))
         const ai = next[1]
         expect(ai.role).toBe('ai')
-        expect(ai.blocks?.map((block) => [block.type, block.content, block.status])).toEqual([
-            ['thinking', '先想一想', 'success'],
-            ['mainText', '第一段正文', 'success'],
-            ['tool', '关键词', 'success'],
-            ['citation', '', 'success'],
-            ['mainText', '第二段正文', 'success']
+        // 工具名单独断言：之前这里只比 type/content/status，
+        // 所以名字退化成 'unknown' 时测试全绿，问题才一路漏到了线上
+        expect(
+            ai.blocks?.map((block) => [block.type, block.content, block.status, block.toolName])
+        ).toEqual([
+            ['thinking', '先想一想', 'success', undefined],
+            ['mainText', '第一段正文', 'success', undefined],
+            ['tool', '关键词', 'success', 'search'],
+            ['citation', '', 'success', undefined],
+            ['mainText', '第二段正文', 'success', undefined]
         ])
         expect(ai.answer).toBe('第一段正文第二段正文')
         expect(ai.docs).toMatchObject([{ id: 'doc-1', title: '文档一' }])
+    })
+
+    it('fills in a tool name that only arrives in a later frame', () => {
+        const raws = [
+            { answer: '<tool>关键词' },
+            { answer: '更多</tool>', node: { name: 'organize' } }
+        ]
+        const next = applyAll(baseMessages(), parseAll(raws))
+        const tool = next[1].blocks?.find((block) => block.type === 'tool')
+
+        expect(tool?.toolName).toBe('organize')
+        expect(tool?.content).toBe('关键词更多')
+    })
+
+    it('leaves the tool name empty instead of writing a fake placeholder', () => {
+        const next = applyAll(baseMessages(), parseAll([{ answer: '<tool>关键词</tool>' }]))
+        const tool = next[1].blocks?.find((block) => block.type === 'tool')
+
+        expect(tool?.toolName).toBeUndefined()
     })
 
     it('is deterministic: applying the same events twice gives the same result', () => {

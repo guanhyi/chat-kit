@@ -127,11 +127,14 @@ export function applyBlockEvent(target: BlockMessage, event: StreamEvent): void 
             break
         }
         case 'tool-pending': {
-            const name = payload.name || 'unknown'
+            // 名字解析不到就留空，由展示层决定怎么显示；数据层不写死 'unknown'
+            const name = payload.name || ''
             target.process = target.process || []
             target.process.push({ name: 'tool', loading: true, result: name, id: payload.blockId })
             if (!findBlock(target, payload.blockId)) {
-                target.blocks.push(newBlock(payload.blockId, 'tool', ts, { toolName: name }))
+                target.blocks.push(
+                    newBlock(payload.blockId, 'tool', ts, name ? { toolName: name } : {})
+                )
             }
             break
         }
@@ -139,7 +142,10 @@ export function applyBlockEvent(target: BlockMessage, event: StreamEvent): void 
             const data = payload.data
             const text = typeof data === 'string' ? data : data ? JSON.stringify(data) : ''
             const block = findBlock(target, payload.blockId)
-            if (!text || !block) break
+            if (!block) break
+            // 名字可能比开标签晚到（比如 node 在后面某一帧才带上），补一次
+            if (!block.toolName && payload.name) block.toolName = payload.name
+            if (!text) break
             block.content = (block.content || '') + text
             block.status = 'streaming'
             block.updatedAt = ts
@@ -148,6 +154,7 @@ export function applyBlockEvent(target: BlockMessage, event: StreamEvent): void 
         case 'tool-complete': {
             const block = findBlock(target, payload.blockId)
             if (block) {
+                if (!block.toolName && payload.name) block.toolName = payload.name
                 block.status = 'success'
                 block.updatedAt = ts
             }

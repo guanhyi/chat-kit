@@ -322,7 +322,7 @@ export const ActivitySummaryBlock: React.FC<ActivitySummaryBlockProps> = ({
                             return (
                                 <ToolBlock
                                     key={block.id}
-                                    toolName={block.toolName || 'unknown'}
+                                    toolName={block.toolName || ''}
                                     content={block.content || ''}
                                     status={toBlockStatus(block.status)}
                                 />

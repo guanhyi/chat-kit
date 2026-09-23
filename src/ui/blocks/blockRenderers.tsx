@@ -27,7 +27,7 @@ export const defaultBlockRenderers: Record<string, BlockRenderer> = {
     tool: (block) => (
         <ToolBlock
             key={block.id}
-            toolName={block.toolName || 'unknown'}
+            toolName={block.toolName || ''}
             content={block.content || ''}
             status={toRenderStatus(block.status)}
         />

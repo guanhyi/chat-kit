@@ -3,6 +3,7 @@ import { TimelineItem } from './TimelineItem'
 import { ReasoningContainer } from './ReasoningContainer'
 import { ChevronDown, ChevronUp, Wrench } from 'lucide-react'
 import { MarkdownRenderer } from '../markdown/MarkdownRenderer'
+import { getToolDisplayName } from './toolLabels'
 
 export interface ToolBlockProps {
     toolName: string
@@ -21,6 +22,11 @@ export const ToolBlock: React.FC<ToolBlockProps> = ({
     className
 }) => {
     const [open, setOpen] = useState(false)
+    // 名字取不到时不摆一个英文占位，直接说「已调用工具」
+    const displayName = getToolDisplayName(toolName)
+    const title = displayName
+        ? `${status === 'streaming' ? '正在调用' : '已调用'} ${displayName}`
+        : `${status === 'streaming' ? '正在调用' : '已调用'}工具`
 
     return (
         <ReasoningContainer className={className}>
@@ -32,11 +38,7 @@ export const ToolBlock: React.FC<ToolBlockProps> = ({
                         className="flex items-center text-[13px] hover:bg-gray-100 rounded-md cursor-pointer flex-1 w-full"
                         onClick={() => setOpen((v) => !v)}
                     >
-                        <div className="font-[500]">
-                            {status === 'streaming'
-                                ? `正在调用 ${toolName}`
-                                : `已调用 ${toolName}`}
-                        </div>
+                        <div className="font-[500]">{title}</div>
                         <div className="text-gray-400 ml-auto rounded-md p-[4px]">
                             {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                         </div>
