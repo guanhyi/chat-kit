@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { Modal } from '@douyinfe/semi-ui'
+import { OverlayScrollbarsComponent } from 'overlayscrollbars-react'
 import { Check, Copy, Download, Maximize2 } from 'lucide-react'
 import {
     buildCsvTableText,
@@ -16,11 +17,10 @@ type EdgeShadowState = 'none' | 'left' | 'right' | 'both'
  * 跟踪横向溢出状态，供左右边缘阴影使用。
  * 流式输出时表格会不断增行、表宽随之变化，所以除了 scroll 还要观察尺寸。
  */
-function useEdgeShadowState(viewportRef: React.RefObject<HTMLDivElement>): EdgeShadowState {
+function useEdgeShadowState(viewport: HTMLElement | null): EdgeShadowState {
     const [state, setState] = useState<EdgeShadowState>('none')
 
     useEffect(() => {
-        const viewport = viewportRef.current
         if (!viewport) return
 
         const measure = () => {
@@ -50,7 +50,7 @@ function useEdgeShadowState(viewportRef: React.RefObject<HTMLDivElement>): EdgeS
             viewport.removeEventListener('scroll', measure)
             observer?.disconnect()
         }
-    }, [viewportRef])
+    }, [viewport])
 
     return state
 }
@@ -93,28 +93,44 @@ function ToolbarButton({
     )
 }
 
-/** 表格骨架：外层滚动容器 + 圆角边框，内层 table 按内容撑开。 */
+/**
+ * 表格骨架：滚动容器 + 圆角边框，内层 table 按内容撑开。
+ *
+ * 滚动交给 OverlayScrollbars，和 ChatBubbleList 用的是同一套——原生滚动条在
+ * Windows 上是又宽又重的一条，压在表格底边上很显眼。
+ */
 function TableFrame({
-    viewportRef,
     tableRef,
     className,
     children,
     tableClassName,
-    edgeShadow,
+    scrollY,
     ...rest
 }: {
-    viewportRef?: React.RefObject<HTMLDivElement>
     tableRef?: React.RefObject<HTMLTableElement>
     className?: string
     children?: React.ReactNode
     tableClassName?: string
-    edgeShadow?: EdgeShadowState
+    /** 纵向也在框内滚。预览弹窗用，表头 sticky 需要一个真的会滚的容器。 */
+    scrollY?: boolean
 } & React.ComponentProps<'table'>) {
+    // OverlayScrollbars 的 viewport 是它自己建的，拿不到 ref，只能等初始化后接出来
+    const [viewport, setViewport] = useState<HTMLElement | null>(null)
+    const edgeShadow = useEdgeShadowState(viewport)
+
     return (
         <div className="relative w-full overflow-hidden rounded-xl border border-gray-200">
-            <div
-                ref={viewportRef}
-                className="chat-table-scroll w-full overflow-x-auto overflow-y-visible overscroll-x-contain"
+            <OverlayScrollbarsComponent
+                defer
+                className="w-full"
+                style={scrollY ? { maxHeight: 'calc(100vh - 220px)' } : undefined}
+                options={{
+                    scrollbars: { visibility: 'auto', autoHide: 'leave', autoHideDelay: 200 },
+                    overflow: { x: 'scroll', y: scrollY ? 'scroll' : 'hidden' }
+                }}
+                events={{
+                    initialized: (instance) => setViewport(instance.elements().viewport)
+                }}
             >
                 <table
                     ref={tableRef}
@@ -132,13 +148,9 @@ function TableFrame({
                 >
                     {children}
                 </table>
-            </div>
-            {edgeShadow ? (
-                <>
-                    <EdgeShadow side="left" state={edgeShadow} />
-                    <EdgeShadow side="right" state={edgeShadow} />
-                </>
-            ) : null}
+            </OverlayScrollbarsComponent>
+            <EdgeShadow side="left" state={edgeShadow} />
+            <EdgeShadow side="right" state={edgeShadow} />
         </div>
     )
 }
@@ -163,9 +175,7 @@ export const MarkdownTable: React.FC<MarkdownTableProps> = ({
     ...rest
 }) => {
     void node
-    const viewportRef = useRef<HTMLDivElement>(null)
     const tableRef = useRef<HTMLTableElement>(null)
-    const edgeShadow = useEdgeShadowState(viewportRef)
     const [previewOpen, setPreviewOpen] = useState(false)
     const [copied, setCopied] = useState<'markdown' | 'csv' | null>(null)
     const copiedTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -227,13 +237,7 @@ export const MarkdownTable: React.FC<MarkdownTableProps> = ({
                 </div>
             )}
 
-            <TableFrame
-                viewportRef={viewportRef}
-                tableRef={tableRef}
-                className={className}
-                edgeShadow={edgeShadow}
-                {...rest}
-            >
+            <TableFrame tableRef={tableRef} className={className} {...rest}>
                 {children}
             </TableFrame>
 
@@ -244,7 +248,7 @@ export const MarkdownTable: React.FC<MarkdownTableProps> = ({
                 footer={null}
                 width={1080}
                 style={{ maxWidth: 'calc(100vw - 32px)' }}
-                bodyStyle={{ maxHeight: 'calc(100vh - 200px)', overflow: 'auto', padding: 0 }}
+                bodyStyle={{ padding: 0, overflow: 'hidden' }}
             >
                 {/*
                   预览里横纵都能滚，表头和首列都值得钉住；对话流里表格跟着页面滚，
@@ -253,6 +257,7 @@ export const MarkdownTable: React.FC<MarkdownTableProps> = ({
                   够不到外面的样式，只能在表格这一层把规则定死。
                 */}
                 <TableFrame
+                    scrollY
                     tableClassName={clsx(
                         '[&_th]:!sticky [&_th]:!top-0 [&_th]:!z-20 [&_th]:!bg-gray-50',
                         '[&_th:first-child]:!left-0 [&_th:first-child]:!z-30',

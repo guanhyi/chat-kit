@@ -48,9 +48,8 @@ const streamdownCaretBlink = keyframes`
 const Styled = styled.div`
     ${ftAnimateStyles}
 
-    /* 代码块与表格：宽度贴齐气泡，超宽时在块内横向滚动 */
-    .chat-code-scroll,
-    .chat-table-scroll {
+    /* 代码块：宽度贴齐气泡，超宽时在块内横向滚动 */
+    .chat-code-scroll {
         max-width: 100%;
         min-width: 0;
         overflow-x: auto;
@@ -59,25 +58,21 @@ const Styled = styled.div`
         scrollbar-color: rgba(148, 163, 184, 0.9) transparent;
     }
 
-    .chat-code-scroll::-webkit-scrollbar,
-    .chat-table-scroll::-webkit-scrollbar {
+    .chat-code-scroll::-webkit-scrollbar {
         height: 8px;
         width: 8px;
     }
 
-    .chat-code-scroll::-webkit-scrollbar-track,
-    .chat-table-scroll::-webkit-scrollbar-track {
+    .chat-code-scroll::-webkit-scrollbar-track {
         background: transparent;
     }
 
-    .chat-code-scroll::-webkit-scrollbar-thumb,
-    .chat-table-scroll::-webkit-scrollbar-thumb {
+    .chat-code-scroll::-webkit-scrollbar-thumb {
         background: rgba(148, 163, 184, 0.85);
         border-radius: 999px;
     }
 
-    .chat-code-scroll::-webkit-scrollbar-thumb:hover,
-    .chat-table-scroll::-webkit-scrollbar-thumb:hover {
+    .chat-code-scroll::-webkit-scrollbar-thumb:hover {
         background: rgba(100, 116, 139, 0.95);
     }
 
