@@ -177,29 +177,23 @@ export const MarkdownTable: React.FC<MarkdownTableProps> = ({
     void node
     const tableRef = useRef<HTMLTableElement>(null)
     const [previewOpen, setPreviewOpen] = useState(false)
-    const [copied, setCopied] = useState<'markdown' | 'csv' | null>(null)
+    const [copied, setCopied] = useState(false)
     const copiedTimer = useRef<ReturnType<typeof setTimeout>>()
 
     useEffect(() => () => clearTimeout(copiedTimer.current), [])
 
-    const copy = useCallback(async (kind: 'markdown' | 'csv', text: string) => {
+    const handleCopyMarkdown = useCallback(async () => {
         try {
-            await navigator.clipboard.writeText(text)
-            setCopied(kind)
+            await navigator.clipboard.writeText(
+                buildMarkdownTableText(readRowsFromTable(tableRef.current))
+            )
+            setCopied(true)
             clearTimeout(copiedTimer.current)
-            copiedTimer.current = setTimeout(() => setCopied(null), 1600)
+            copiedTimer.current = setTimeout(() => setCopied(false), 1600)
         } catch {
             // 非安全上下文或用户拒绝授权时拿不到剪贴板，静默放弃即可
         }
     }, [])
-
-    const handleCopyMarkdown = useCallback(() => {
-        void copy('markdown', buildMarkdownTableText(readRowsFromTable(tableRef.current)))
-    }, [copy])
-
-    const handleCopyCsv = useCallback(() => {
-        void copy('csv', buildCsvTableText(readRowsFromTable(tableRef.current)))
-    }, [copy])
 
     const handleDownloadCsv = useCallback(() => {
         const rows = readRowsFromTable(tableRef.current)
@@ -218,15 +212,8 @@ export const MarkdownTable: React.FC<MarkdownTableProps> = ({
         <div className="my-[1.25em] flex min-w-0 flex-col gap-1.5">
             {streaming ? null : (
                 <div className="flex items-center justify-end gap-0.5">
-                    <ToolbarButton label="复制 Markdown" onClick={handleCopyMarkdown}>
-                        {copied === 'markdown' ? <Check size={14} /> : <Copy size={14} />}
-                    </ToolbarButton>
-                    <ToolbarButton label="复制 CSV" onClick={handleCopyCsv}>
-                        {copied === 'csv' ? (
-                            <Check size={14} />
-                        ) : (
-                            <span className="text-[10px] font-medium leading-none">CSV</span>
-                        )}
+                    <ToolbarButton label="复制 Markdown" onClick={() => void handleCopyMarkdown()}>
+                        {copied ? <Check size={14} /> : <Copy size={14} />}
                     </ToolbarButton>
                     <ToolbarButton label="下载 CSV" onClick={handleDownloadCsv}>
                         <Download size={14} />
