@@ -4,6 +4,7 @@ import { Virtualizer } from 'virtua'
 import type { VListHandle } from 'virtua'
 import type { ChatBubbleListProps, ChatBubbleListRef, BaseMessage } from '../types'
 import { useAutoScroll } from './useAutoScroll'
+import { isMessageInProgress } from '../controller/messagePhase'
 
 type ChatBubbleListComponent = <TMessage extends BaseMessage = BaseMessage>(
     props: ChatBubbleListProps<TMessage> & React.RefAttributes<ChatBubbleListRef>
@@ -11,13 +12,6 @@ type ChatBubbleListComponent = <TMessage extends BaseMessage = BaseMessage>(
 
 const CHAT_VIRTUAL_BUFFER_SIZE = 2400
 
-function isStreamingMessage(message: BaseMessage | undefined): boolean {
-    if (!message) return false
-    if (message.loading) return true
-    if (message.role === 'loading') return true
-    const blocks = message.blocks
-    return Array.isArray(blocks) && blocks.some((block) => block?.status === 'streaming')
-}
 
 /**
  * 基础气泡列表组件：
@@ -182,7 +176,7 @@ const ChatBubbleListInner = (
     // 它结束后再收进虚拟列表。滚动恢复只针对 VList，tail 高度不参与那次计算。
     const liveIndex = messages.length - 1
     const liveMessage = messages[liveIndex]
-    const hasLiveTail = isStreamingMessage(liveMessage)
+    const hasLiveTail = isMessageInProgress(liveMessage)
     const virtualMessages = hasLiveTail ? messages.slice(0, liveIndex) : messages
 
     const renderMessage = (message: BaseMessage, index: number) => {

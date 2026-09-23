@@ -1,14 +1,17 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
-import { produce } from 'immer'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type {
     BaseMessage,
-    ChatSendInput,
     MessageLifecycle,
-    StreamEvent,
     UseChatControllerOptions,
     UseChatControllerResult
 } from '../types'
-import { useChatStream } from '../stream/useChatStream'
+import {
+    ChatSessionStore,
+    acquireChatSession,
+    releaseChatSession,
+    retainChatSession,
+    type ChatSessionOptions
+} from './chatSessionStore'
 
 // 默认生命周期实现：作为简单示例，满足基础对话场景（纯文本流式）
 function createDefaultLifecycle<
@@ -17,60 +20,33 @@ function createDefaultLifecycle<
 >(): MessageLifecycle<TMessage, TExtra> {
     return {
         onBeforeSend: (draft, ctx) => {
-            const idBase = Date.now().toString()
-            // user 消息
+            const now = Date.now()
             draft.push({
-                id: `${idBase}-user`,
+                id: `${ctx.messageId}-user`,
                 role: 'user',
                 content: ctx.question,
-                createdAt: Date.now(),
-                updatedAt: Date.now()
+                createdAt: now,
+                updatedAt: now
             } as unknown as TMessage)
-            // ai 占位
+            // ai 占位；阶段由 controller 写入
             draft.push({
-                id: `${idBase}-ai`,
+                id: ctx.messageId,
                 role: 'ai',
                 content: '',
-                loading: true,
-                createdAt: Date.now(),
-                updatedAt: Date.now()
+                createdAt: now,
+                updatedAt: now
             } as unknown as TMessage)
         },
         onStreamEvent: (draft, event, ctx) => {
-            // 仅作为示例：把文本增量追加到最后一条 ai 消息
-            const last = draft[draft.length - 1]
-            if (!last || last.role !== 'ai') return
-
-            const payload = (event as any).payload ?? (event as any).raw ?? {}
-
+            const target = draft.find((message) => message.id === ctx.messageId)
+            if (!target) return
             // 默认视为文本增量事件：支持 text-delta/raw 两种 type
-            if (event.type === 'text-delta' || event.type === 'raw') {
-                const delta =
-                    (payload as any).delta ??
-                    (payload as any).text ??
-                    (payload as any).answer ??
-                    ''
-                last.content = (last.content || '') + String(delta)
-                last.updatedAt = Date.now()
-            }
-
-            // 默认结束事件：type === done 或 payload/raw 上携带 isEnd=true
-            if (
-                event.type === 'done' ||
-                Boolean((payload as any).isEnd) ||
-                Boolean((event as any).raw?.isEnd)
-            ) {
-                ;(last as any).loading = false
-                last.updatedAt = Date.now()
-            }
-            void ctx
-        },
-        onCancel: (draft) => {
-            const last = draft[draft.length - 1]
-            if (!last) return
-            ;(last as any).loading = false
-            ;(last as any).isEnd = true
-            last.updatedAt = Date.now()
+            if (event.type !== 'text-delta' && event.type !== 'raw') return
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const payload = (event.payload ?? event.raw ?? {}) as any
+            const delta = payload.delta ?? payload.text ?? payload.answer ?? ''
+            target.content = (target.content || '') + String(delta)
+            target.updatedAt = event.timestamp
         },
         onClear: (draft) => {
             if (draft.length <= 1) return
@@ -81,106 +57,64 @@ function createDefaultLifecycle<
     }
 }
 
-export const useChatController = <
-    TMessage extends BaseMessage = BaseMessage,
-    TExtra = any
->(
+interface StoreHolder<TMessage extends BaseMessage, TExtra> {
+    key: string | undefined
+    store: ChatSessionStore<TMessage, TExtra>
+    restored: boolean
+}
+
+/**
+ * 对话控制器：消息列表 + 进行中的请求。
+ * 状态存在 ChatSessionStore（React 之外），组件通过 useSyncExternalStore 订阅。
+ * 传 sessionKey 时同一个 key 共用一份状态，离开页面请求照常进行，回来时接上。
+ */
+export const useChatController = <TMessage extends BaseMessage = BaseMessage, TExtra = any>(
     options: UseChatControllerOptions<TMessage, TExtra>
 ): UseChatControllerResult<TMessage, TExtra> => {
-    const { initialMessages, messageLifecycle: lifecycleFromOptions, ...streamOptions } = options
-
-    const [messages, setMessagesState] = useState<TMessage[]>(() => initialMessages || [])
-
-    // immer 风格 setMessages
-    const setMessages = useCallback(
-        (updater: (draft: TMessage[]) => void) => {
-            setMessagesState((prev) =>
-                produce(prev, (draft) => {
-                    updater(draft as TMessage[])
-                })
-            )
-        },
-        []
-    )
-
-    const lifecycle: MessageLifecycle<TMessage, TExtra> = useMemo(
-        () => lifecycleFromOptions || createDefaultLifecycle<TMessage, TExtra>(),
-        [lifecycleFromOptions]
-    )
-
-    const lastCtxRef = useRef<{ question: string; extra?: TExtra } | null>(null)
-
-    // 包装 parseEvent：在解析事件的同时驱动消息生命周期
-    const mergedParseEvent = useCallback(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (raw: any): StreamEvent[] => {
-            const baseParser = streamOptions.parseEvent
-            const events: StreamEvent[] = baseParser ? baseParser(raw) : [{ type: 'raw', payload: raw, raw, timestamp: Date.now() }]
-
-            if (lifecycle.onStreamEvent && events.length > 0) {
-                const ctx = lastCtxRef.current
-                if (ctx) {
-                    setMessages((draft) => {
-                        for (const ev of events) {
-                            lifecycle.onStreamEvent?.(draft as TMessage[], ev, ctx)
-                        }
-                    })
-                }
-            }
-
-            return events
-        },
-        [lifecycle, setMessages, streamOptions.parseEvent]
-    )
-
-    const { start, cancel: cancelStream, loading } = useChatStream<TExtra>({
-        ...streamOptions,
-        parseEvent: mergedParseEvent
-    })
-
-    const send = useCallback(
-        (input: ChatSendInput<TExtra>) => {
-            const ctx = { question: input.question, extra: input.extra }
-            lastCtxRef.current = ctx
-
-            if (lifecycle.onBeforeSend) {
-                setMessages((draft) => {
-                    lifecycle.onBeforeSend?.(draft as TMessage[], ctx)
-                })
-            }
-
-            return start(input)
-        },
-        [lifecycle, setMessages, start]
-    )
-
-    const cancel = useCallback(() => {
-        if (lifecycle.onCancel) {
-            setMessages((draft) => {
-                lifecycle.onCancel?.(draft as TMessage[])
-            })
-        }
-        cancelStream()
-    }, [cancelStream, lifecycle, setMessages])
-
-    const clear = useCallback(() => {
-        if (lifecycle.onClear) {
-            setMessages((draft) => {
-                lifecycle.onClear?.(draft as TMessage[])
-            })
-        } else {
-            setMessages(() => [])
-        }
-    }, [lifecycle, setMessages])
-
-    return {
-        messages,
-        loading,
-        send,
-        cancel,
-        clear,
-        setMessages
+    const { initialMessages, sessionKey, ...rest } = options
+    const defaultLifecycle = useMemo(() => createDefaultLifecycle<TMessage, TExtra>(), [])
+    const sessionOptions: ChatSessionOptions<TMessage, TExtra> = {
+        ...rest,
+        messageLifecycle: rest.messageLifecycle ?? defaultLifecycle
     }
+
+    const createHolder = (key: string | undefined): StoreHolder<TMessage, TExtra> => {
+        const create = () => new ChatSessionStore<TMessage, TExtra>(sessionOptions, initialMessages)
+        if (!key) return { key, store: create(), restored: false }
+        return { key, ...acquireChatSession(key, create) }
+    }
+
+    const [holder, setHolder] = useState(() => createHolder(sessionKey))
+    let current = holder
+    if (holder.key !== sessionKey) {
+        current = createHolder(sessionKey)
+        setHolder(current)
+    }
+    const { store, restored } = current
+    // 始终使用最新的 buildRequest / 回调闭包
+    store.setOptions(sessionOptions)
+
+    useEffect(() => {
+        if (!sessionKey) return
+        retainChatSession(sessionKey, store)
+        return () => releaseChatSession(sessionKey, store)
+    }, [sessionKey, store])
+
+    const state = useSyncExternalStore(store.subscribe, store.getState, store.getState)
+
+    return useMemo(
+        () => ({
+            messages: state.messages,
+            loading: state.loading,
+            activeMessageId: state.activeMessageId,
+            restored,
+            send: store.send,
+            cancel: store.cancel,
+            clear: store.clear,
+            setMessages: store.setMessages
+        }),
+        [state, restored, store]
+    )
 }
 
 export default useChatController

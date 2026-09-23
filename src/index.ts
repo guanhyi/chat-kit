@@ -1,6 +1,15 @@
 export * from './types'
 export * from './stream/useChatStream'
 export * from './controller/useChatController'
+export * from './controller/messagePhase'
+export {
+    ChatSessionStore,
+    createMessageId,
+    defaultFormatError,
+    type ChatSessionState
+} from './controller/chatSessionStore'
+export * from './stream/openChatStream'
+export { SseJsonParser } from './stream/sseParser'
 export * from './ui/useAutoScroll'
 export * from './ui/ChatBubbleList'
 export * from './adapter/useDefaultChatAdapter'

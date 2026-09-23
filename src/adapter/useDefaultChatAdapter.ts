@@ -2,6 +2,7 @@ import React, { useCallback, useMemo } from 'react'
 import type {
     BaseMessage,
     ChatSendInput,
+    ChatSendOptions,
     MessageLifecycle,
     UseChatControllerOptions,
     UseDefaultChatAdapterOptions,
@@ -33,9 +34,9 @@ export const useDefaultChatAdapter = <
     const controller = useChatController<TMessage, TExtra>(finalOptions)
 
     const sendMessage = useCallback(
-        (question: string, extra?: TExtra) => {
+        (question: string, extra?: TExtra, sendOptions?: ChatSendOptions) => {
             const input: ChatSendInput<TExtra> = { question, extra }
-            return controller.send(input)
+            return controller.send(input, sendOptions)
         },
         [controller]
     )
