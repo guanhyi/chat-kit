@@ -167,6 +167,45 @@ export function resolveToolName(attrs: Record<string, string>, raw?: any): strin
     return ''
 }
 
+export type CitationDoc = { id: string; title: string; url?: string; extra?: any }
+
+/**
+ * 后端 docs 可能是对象数组，也可能是「JSON 字符串」数组，统一解析归一化成 CitationDoc。
+ * 实时流和历史消息都走这里，保证同一条消息刷新前后显示一致。
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function normalizeCitationDoc(d: any): CitationDoc {
+    let raw = d
+    if (typeof d === 'string') {
+        try {
+            raw = JSON.parse(d)
+        } catch {
+            // 解析失败时兜底为纯字符串
+            return {
+                id: String(d),
+                title: String(d),
+                url: undefined,
+                extra: d
+            }
+        }
+    }
+    if (!raw || typeof raw !== 'object') {
+        return { id: String(d), title: String(d), url: undefined, extra: raw }
+    }
+    return {
+        id: raw.id || raw.file_id || raw.fileId || raw.kb_id || String(d),
+        title:
+            raw.title ||
+            raw.fileName ||
+            raw.name ||
+            (typeof raw.snippet === 'string' ? raw.snippet.slice(0, 80) : '') ||
+            String(d),
+        url: raw.url,
+        // 把原始结构挂到 extra，方便前端拿 snippet 等字段
+        extra: raw
+    }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function fillToolName(attrs: Record<string, string>, raw?: any): void {
     if (attrs.name && attrs.name.trim()) return
@@ -212,40 +251,10 @@ function sseToChunks(params: {
 
     // 1) 引用更新
     if (sse.docs && sse.docs.length) {
-        // 后端 docs 目前可能是对象数组，也可能是「JSON 字符串」数组，这里统一做一层解析与归一化
-        const normalizeDoc = (d: any) => {
-            let raw = d
-            if (typeof d === 'string') {
-                try {
-                    raw = JSON.parse(d)
-                } catch {
-                    // 解析失败时兜底为纯字符串
-                    return {
-                        id: String(d),
-                        title: String(d),
-                        url: undefined,
-                        extra: d
-                    }
-                }
-            }
-            return {
-                id: raw.id || raw.file_id || raw.fileId || raw.kb_id || String(d),
-                title:
-                    raw.title ||
-                    raw.fileName ||
-                    raw.name ||
-                    (typeof raw.snippet === 'string' ? raw.snippet.slice(0, 80) : '') ||
-                    String(d),
-                url: raw.url,
-                // 把原始结构挂到 extra，方便前端拿 snippet 等字段
-                extra: raw
-            }
-        }
-
         chunks.push({
             type: CHUNK_TYPE.CITATION_UPDATE,
             ts: Date.now(),
-            docs: sse.docs.map((d: any) => normalizeDoc(d))
+            docs: sse.docs.map((d: any) => normalizeCitationDoc(d))
         })
     }
 

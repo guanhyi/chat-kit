@@ -9,7 +9,13 @@ import { useChatController } from '../controller/useChatController'
 import { createBlocksLifecycle } from './blocksLifecycle'
 
 export { applyBlockEvent, createBlocksLifecycle } from './blocksLifecycle'
-export { createBlocksParser, parseTagAttrs, resolveToolName } from './blocksProtocol'
+export {
+    createBlocksParser,
+    normalizeCitationDoc,
+    parseTagAttrs,
+    resolveToolName
+} from './blocksProtocol'
+export type { CitationDoc } from './blocksProtocol'
 export type { BlockEventType, BlockStreamEvent } from './blocksProtocol'
 
 // ===================== 适配器 Hook =====================
