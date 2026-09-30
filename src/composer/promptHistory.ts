@@ -8,6 +8,8 @@ const PROMPT_HISTORY_STORAGE_KEY_PREFIX = 'chat-kit-prompt-history:v1:'
 
 export type PromptHistoryDirection = 'up' | 'down'
 
+export type PromptHistoryEntry = { text: string; content?: unknown }
+
 export interface PromptHistoryNavigationResult {
     nextIndex: number | null
     nextValue: string
@@ -81,21 +83,52 @@ export function readPromptHistory(
     storage: StorageLike | null = getBrowserStorage()
 ): string[] {
     const value = readJson(storage, storageKey(scope))
+    return normalizeHistoryEntries(value).map((entry) => entry.text)
+}
+
+function normalizeHistoryEntries(value: unknown): PromptHistoryEntry[] {
     if (!Array.isArray(value)) return []
     return value
-        .filter((entry): entry is string => typeof entry === 'string')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0)
+        .flatMap((entry): PromptHistoryEntry[] => {
+            if (typeof entry === 'string') return [{ text: entry.trim() }]
+            if (entry && typeof entry.text === 'string') {
+                return [{ text: entry.text.trim(), content: entry.content }]
+            }
+            return []
+        })
+        .filter((entry) => entry.text.length > 0)
         .slice(-MAX_PROMPT_HISTORY)
+}
+
+/** 保留编辑器结构，同时兼容旧版的纯文本历史。 */
+export function readPromptHistoryEntries(
+    scope: string,
+    storage: StorageLike | null = getBrowserStorage()
+): PromptHistoryEntry[] {
+    return normalizeHistoryEntries(readJson(storage, storageKey(scope)))
 }
 
 /** 读出、追加、写回。返回写入后的列表 */
 export function recordPromptHistory(
     scope: string,
     entry: string,
-    storage: StorageLike | null = getBrowserStorage()
+    storage: StorageLike | null = getBrowserStorage(),
+    content?: unknown
 ): string[] {
-    const next = appendPromptHistoryEntry(readPromptHistory(scope, storage), entry)
-    writeJson(storage, storageKey(scope), next)
-    return next
+    const entries = readPromptHistoryEntries(scope, storage)
+    const text = entry.trim()
+    const last = entries[entries.length - 1]
+    if (
+        text &&
+        (last?.text !== text || JSON.stringify(last?.content) !== JSON.stringify(content))
+    ) {
+        entries.push({ text, ...(content === undefined ? {} : { content }) })
+    }
+    const next = entries.slice(-MAX_PROMPT_HISTORY)
+    writeJson(
+        storage,
+        storageKey(scope),
+        next.map((item) => (item.content === undefined ? item.text : item))
+    )
+    return next.map((item) => item.text)
 }
